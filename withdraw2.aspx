@@ -848,6 +848,149 @@
         });
     </script>
 
+    <%--=====================================================================
+    WITHDRAW — THEME OVERRIDE  (โครงเดียวกับ borrow_tool2 / โทนแดง #c0392b ของหน้าเบิกเดิม)
+    ────────────────────────────────────────────────────────────────
+    วิธีใช้ : วางทั้งบล็อกนี้ไว้ "ท้ายสุด" ของกลุ่ม <style> ในหน้า
+             (ต่อจาก <style> ก้อนสุดท้าย ก่อน <asp:ScriptManager>)
+    ผลลัพธ์ : ความสว่าง/ความนุ่มของสีเท่ากับ borrow_tool2 แต่ส่วนหัว/การ์ด/แถบปุ่ม ใช้โทนแดงของหน้าเบิก
+             (ปุ่ม / สถานะ / ตาราง / toast ใช้สี semantic ชุดเดียวกับ borrow)
+    ย้อนกลับ: ลบบล็อกนี้ทิ้ง หน้าจะกลับเป็นสีเดิมทันที
+    =====================================================================--%>
+    <style>
+        :root {
+            /* Navy scale */
+            --nv-900:#12293f; --nv-800:#1a3a5c; --nv-700:#245177; --nv-600:#2980b9;
+            --nv-500:#4a90c2; --nv-200:#aecbe6; --nv-100:#dbe7f2; --nv-050:#eef4fa;
+            /* Rose scale : โทนแดงของหน้าเบิก (เดิม #ffa6a6 / #f3e5e5 / #dbc8c8 / #c0392b) แต่นุ่มลง */
+            --rs-900:#5c1f1a; --rs-800:#7d2a22; --rs-700:#a5342a; --rs-600:#c0392b;
+            --rs-200:#f6cbc6; --rs-100:#fae3e0; --rs-050:#fdf4f3; --rs-line:#efd3cf;
+            /* input */
+            --field-focus-bg:#e7f2fb; --field-focus-ring:rgba(41,128,185,.18);
+            /* neutral */
+            --text:#2c3e50; --text-sub:#5b6b7d; --border:#d0dbe8; --border-soft:#e3ebf3;
+            --surface:#ffffff; --surface-2:#f7fafd;
+            /* semantic */
+            --ok:#2e9e5b;     --ok-bg:#e6f6ec;     --ok-line:#b7e2c6;
+            --warn:#d98a1f;   --warn-bg:#fdf3e2;   --warn-line:#f2d9a8;
+            --danger:#d64b3d; --danger-bg:#fbeceb; --danger-line:#f2c2bd;
+            --info:#2980b9;   --info-bg:#eaf3fb;   --info-line:#bcd9ef;
+            /* amber soft (แทนเหลืองสะท้อน) */
+            --amber-soft-bg:#fdf6e3; --amber-soft-line:#ecd9a6; --amber-soft-text:#7a5b16;
+            /* shadow */
+            --sh-1:0 1px 4px rgba(26,58,92,.08); --sh-2:0 4px 14px rgba(26,58,92,.12);
+        }
+
+        /* ===== HEADER ===== */
+        .page-header{ background:linear-gradient(135deg,var(--rs-800) 0%,var(--rs-600) 100%) !important; }
+        .grid-headerTopic{ background-color:var(--rs-200) !important; }          /* เดิม #ffa6a6 */
+        .header_Style1{ color:var(--rs-900) !important; }
+
+        /* ===== CARD ===== */
+        .card{ box-shadow:var(--sh-1) !important; }
+        .card-header{
+            background:var(--rs-050) !important;                                 /* เดิม #f3e5e5 */
+            border-bottom:1px solid var(--rs-line) !important;
+            color:var(--nv-800) !important;
+        }
+        .card-header .badge{ background:var(--nv-600) !important; color:#fff !important; }
+
+        /* ===== FORM / INPUT ===== */
+        .form-group input:focus,
+        .form-group select:focus{
+            border-color:var(--nv-600) !important;
+            box-shadow:0 0 0 3px var(--field-focus-ring) !important;
+        }
+        .form-group input[readonly]{ background:var(--surface-2) !important; }
+        /* กล่อง input ที่เดิมใช้ #00a7ff40 → ทำเป็นโทนฟ้าเดียวกัน (คุมด้วย attribute) */
+        input[style*="00a7ff40"]{ background-color:var(--field-focus-bg) !important; }
+
+        /* ===== BUTTONS ===== */
+        .btn-primary{ background:var(--nv-600) !important; }
+        .btn-primary:hover{ background:var(--nv-700) !important; }
+        .btn-success{ background:var(--ok) !important; }
+        .btn-success:hover{ background:#25824a !important; }
+        .btn-warning{ background:var(--warn) !important; }
+        .btn-warning:hover{ background:#c07a17 !important; }
+        .btn-danger{ background:var(--danger) !important; }
+        .btn-danger:hover{ background:#c0392f !important; }
+        .btn-secondary{ background:#7c8896 !important; }
+        .btn-secondary:hover{ background:#68727e !important; }
+
+        /* ===== STATUS BADGE ===== */
+        .status-draft{     background:var(--warn-bg) !important; color:var(--warn) !important; border:1px solid var(--warn-line) !important; }
+        .status-approve{   background:var(--info-bg) !important; color:var(--nv-700) !important; border:1px solid var(--info-line) !important; }
+        .status-confirm{   background:#f2e9f7 !important; color:#8b3fa0 !important; border:1px solid #d8b8e4 !important; }
+        .status-completed{ background:var(--ok-bg) !important; color:var(--ok) !important; border:1px solid var(--ok-line) !important; }
+        .status-cancel{    background:#ececec !important; color:#4c4c4c !important; border:1px solid #cfcfcf !important; }
+        .status-borrow{    background:#dbe4f5 !important; color:var(--nv-700) !important; border:1px solid #b9c8e6 !important; }
+
+        /* ===== SEARCH TABS ===== */
+        .search-tab.active{ color:var(--nv-600) !important; border-bottom-color:var(--nv-600) !important; }
+        .search-tab:hover{ color:var(--nv-600) !important; }
+
+        /* ===== TABLES ===== */
+        table.data-table thead tr{ background:var(--nv-800) !important; }
+        table.data-table tbody tr:hover{ background:var(--nv-100) !important; }
+        table.data-table tbody tr:nth-child(even){ background:var(--surface-2) !important; }
+        table.data-table tbody tr:nth-child(even):hover{ background:var(--nv-100) !important; }
+
+        /* ===== ZONE : Use / Current ===== */
+        .hdr-use{ background-color:var(--ok) !important; }
+        .col-use{ background-color:var(--ok-bg) !important; }
+        .hdr-current{ background-color:var(--nv-700) !important; }
+        .col-current{ background-color:var(--nv-050) !important; color:var(--text-sub) !important; }
+        .zone-divider{ border-left:4px solid var(--nv-800) !important; }
+        .hdr-use.zone-divider{ border-left:4px solid var(--nv-800) !important; }
+
+        /* ===== ALERT ===== */
+        .alert-info{    background:var(--info-bg) !important; color:var(--nv-700) !important; border-left:4px solid var(--nv-600) !important; }
+        .alert-success{ background:var(--ok-bg) !important;  color:#1e7a45 !important;      border-left:4px solid var(--ok) !important; }
+        .alert-danger{  background:var(--danger-bg) !important; color:#8f2b22 !important;   border-left:4px solid var(--danger) !important; }
+
+        /* ===== ACTION BAR ===== */
+        .action-bar{
+            background:rgba(246,203,198,.72) !important;                        /* โทน --rs-200 (เดิม #dbc8c8d6) */
+            box-shadow:var(--sh-2) !important;
+            border-top:1px solid var(--rs-line) !important;
+        }
+        .status-dot{ background:var(--nv-500) !important; }
+
+        /* ===== NOTE : เหลืองอำพันนุ่ม (แทน #e4ff5d) ===== */
+        /* badge เหลืองสะท้อนใน note → อำพันนุ่ม */
+        .page-note .badge[style*="e4ff5d"]{
+            background:var(--amber-soft-bg) !important;
+            color:var(--amber-soft-text) !important;
+            border:1px solid var(--amber-soft-line) !important;
+            text-shadow:none !important;
+        }
+        /* badge หัวข้อ "หมายเหตุ / ตัวอย่าง" สีแดง → โทน danger เดียวกัน */
+        .page-note .badge[style*="ff5d5d"],
+        .page-note .badge[style*="ff5d5dd4"]{
+            background:var(--danger) !important;
+        }
+
+        /* ===== BADGE (Spare / Normal / Borrowing) ปรับให้กลมกลืน ===== */
+        .badge-normal{ background-color:var(--ok) !important; }
+        .badge-spare{ background-color:#e9b949 !important; color:#3d2f00 !important; }
+        .badge-borrowing{ background-color:var(--danger) !important; }
+        .badge-issue{
+            background:#dbe7f2 !important;
+            border:1px solid var(--nv-600) !important;
+        }
+
+        /* ===== SELECT2 : กล่องค้นหา ===== */
+        .select2-container--default .select2-search--dropdown .select2-search__field{
+            background:var(--field-focus-bg) !important;
+        }
+
+        /* ===== TOAST : ปรับให้ตรง semantic ใหม่ ===== */
+        .toast.success{ background:var(--ok) !important; }
+        .toast.error{   background:var(--danger) !important; }
+        .toast.warn{    background:var(--warn) !important; }
+        .toast.info{    background:var(--info) !important; }
+    </style>
+
     <%--Step 3 : Fix คอลัมน์แนว X--%>
     <script>
         function fixStickyColumns() {

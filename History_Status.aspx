@@ -688,6 +688,11 @@
         .cl-tag-same { background:#eef1f4; color:#66727f; }
         .cl-tag-doc  { background:#fff4e0; color:#a15c00; border:1px solid #f5c26b; margin-right:4px; }
         .cl-tag-wd   { background:#fdecea; color:#a5342a; border:1px solid #efc2bc; margin-right:4px; }
+        .cl-tag-edit { background:#eef1f4; color:#4a5b6d; border:1px solid #d5dbe2; margin-right:4px; }
+        /* ประเภท + เลขเอกสาร : บนสุดของคอลัมน์ "ข้อมูลอื่นที่เปลี่ยน" */
+        .cl-docinfo { display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin-bottom:5px; padding-bottom:5px; border-bottom:1px dashed #d5dbe2; }
+        .cl-docinfo .cl-tag { min-width:0; }
+        .cl-doc-no  { font-size:12px; font-weight:700; color:#1c2b3a; font-variant-numeric:tabular-nums; }
 
         /* อุปกรณ์ FA / CT / TL */
         .cl-asset { font-size:12.5px; line-height:1.6; }
@@ -1081,8 +1086,7 @@
                                     <div class="cl-legend">
                                         <span class="cl-tag cl-tag-old">เดิม</span> ค่าก่อนแก้ไข
                                         <span class="cl-tag cl-tag-new">ใหม่</span> ค่าหลังแก้ไข
-                                        <span class="cl-tag cl-tag-doc">📄 แจ้งเปลี่ยน</span> จากเอกสาร Change (AAD Confirm แล้ว)
-                                        <span class="cl-tag cl-tag-wd">📦 เบิก</span> จากเอกสารเบิก (Wait Update / Completed)
+                                        · ประเภท / เลขเอกสาร อยู่ในคอลัมน์ "ข้อมูลอื่นที่เปลี่ยน"
                                     </div>
                                 </div>
 

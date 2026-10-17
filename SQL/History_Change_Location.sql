@@ -45,6 +45,7 @@ CREATE TABLE [dbo].[History_Change_Location](
 	[New_DueDate] [datetime] NULL,
 	[Old_Remark] [nvarchar](250) NULL,
 	[New_Remark] [nvarchar](250) NULL,
+	[Doc_No] [nvarchar](30) NULL,
 PRIMARY KEY CLUSTERED 
 (
 	[History_id] ASC

@@ -613,6 +613,9 @@
             border-radius:6px; font-size:12.5px; font-weight:700; color:#6b4d00;
         }
         table.wcf-table td.col-aad select.aad-ddl:focus { outline:none; box-shadow:0 0 0 3px rgba(255,193,7,.35); }
+        /* หมายเหตุกฎ Auto Assign ใต้ Dropdown ผู้รับผิดชอบ */
+        table.wcf-table .rule-note { margin-top:4px; font-size:11.5px; color:#66727f; white-space:normal; max-width:260px; }
+        table.wcf-table .rule-note.hit { color:#7a4f00; background:#fff4e0; border:1px solid #f5c26b; border-radius:4px; padding:2px 6px; }
         table.wcf-table td.col-aad select.aad-ddl-empty {
             background:#fbeceb !important; border-color:#c93b3b !important; color:#a82f2f;
         }
@@ -1410,6 +1413,7 @@
                                         HeaderStyle-CssClass="hdr-aad" ItemStyle-CssClass="col-aad">
                                         <ItemTemplate>
                                             <asp:DropDownList ID="ddlResponsible" runat="server" CssClass="form-control aad-ddl" />
+                                            <asp:Literal ID="litRuleNote" runat="server" />
                                         </ItemTemplate>
                                     </asp:TemplateField>
 

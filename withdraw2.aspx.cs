@@ -27,9 +27,15 @@ namespace Tool_Equipment_Control_System
         System.Text.StringBuilder sb = new System.Text.StringBuilder();
         datacon dc = new datacon();
 
-        // path โฟลเดอร์ Withdraw
-        private const string ManualFolder = @"\\cptfile02\Pro\PRJ2023008\50_Flow_Manual\01_Manual\08_Tool&Equipment\Withdraw";
-        private const string ManualFileName = "Withdraw_Manual.pdf";
+        // ── Manual (รูปแบบเดียวกับ borrow_tool2 : แยกไฟล์ตาม Step) ──────────
+        private const string MANUAL_FOLDER =
+            @"\\cptfile02\Pro\PRJ2023008\50_Flow_Manual\01_Manual\08_Tool&Equipment\03_Withdraw";
+        private static readonly string[] MANUAL_FILES = { "Step1", "Step2", "Step3", "Step4", "SaveDraft", "SendRequest", "CancelRequest", "Confirm", "Reject" };
+
+        // ── AAD Confirm : Status Use / ผู้รับผิดชอบ (อ้างอิง NotificationOfChange) ──
+        private DataTable _statusUseM, _respM;      // master (โหลดครั้งเดียวต่อ Request)
+        private const string STATUS_USE = "1";      // tool_equipment_status : Use
+        private const string STATUS_SPARE = "2";    // tool_equipment_status : Spare
 
         protected DataTable BorrowListDT
         {
@@ -55,6 +61,7 @@ namespace Tool_Equipment_Control_System
             string mode = "edit"; // default
             ViewState["MODE"] = mode;
             hdIsAdmin.Value = (Session["admin"] != null && Session["admin"].ToString() == "99") ? "99" : "0";
+            phManualUpload.Visible = (hdIsAdmin.Value == "99");
 
             if (Session["emp_id"] == null || Session["emp_id"].ToString() == "")
                 Response.Redirect("Default.aspx");
@@ -788,97 +795,115 @@ namespace Tool_Equipment_Control_System
                 saveData(status_id);
             }
         }
+        /// <summary>AAD Confirm (Status 50) : เปิด Modal ยืนยัน Status Use / ผู้รับผิดชอบ</summary>
         protected void btnConfirm_Click(object sender, EventArgs e)
         {
+            if (!IsAadEditable())
+            {
+                alert_toast("AAD Confirm ได้เฉพาะเอกสารสถานะรอ AAD Confirm (โหมด Confirm)", "ไม่สามารถยืนยันได้", "warn", "10000");
+                return;
+            }
+
+            BuildConfirmSummary();
+            ReopenConfirmModal();
+        }
+
+        /// <summary>ยืนยันจาก Modal — ตรวจ Dropdown / บันทึก Status Use + ผู้รับผิดชอบ (เดิม/ใหม่) รายแถว + Header 99</summary>
+        protected void btnConfirmModalOk_Click(object sender, EventArgs e)
+        {
+            if (!IsAadEditable())
+            {
+                alert_toast("AAD Confirm ได้เฉพาะเอกสารสถานะรอ AAD Confirm (โหมด Confirm)", "ไม่สามารถยืนยันได้", "warn", "10000");
+                return;
+            }
+
+            // ── อ่าน + ตรวจ Dropdown ใน Modal (ไม่ครบ → เปิด Modal ค้างไว้ พร้อมขอบแดง) ──
+            if (!ReadAndValidateConfirmModal())
+            {
+                ReopenConfirmModal();
+                return;
+            }
+
             string Doc_No = litIssueNo.Text.Trim();
-            string mode = ViewState["MODE"].ToString();
-            string empId = "";
-            string empName = "";
-            string link_path = "EquipmentStatus2.aspx";
-
-            // ✅ อ่าน mode
-            if (!string.IsNullOrEmpty(Request.QueryString["mode"]))
-            {
-                mode = Request.QueryString["mode"].ToLower();
-            }
-
-            if (mode == "confirm")
-            {
-                empId = Session["emp_id"].ToString();
-                empName = Session["user_name"].ToString();
-                link_path = "ApproveStatus.aspx";
-            }
-            else
-            {
-                empId = txtEmpId.Text.Trim();
-                empName = txtEmpName.Text;
-                link_path = "EquipmentStatus2.aspx";
-            }
-
-            // ✅ แยกด้วย space แล้วเอาตัวแรก
-            empName = empName.Split(' ')[0];
-
-            // ✅ ผ่านแล้ว → ทำ Confirm ต่อ
-            //Search Status
-            string status_id = ViewState["STATUS_ID"].ToString();
+            string empId = Session["emp_id"] != null ? Session["emp_id"].ToString().Trim() : "";
+            DateTime now = DateTime.Now;
+            bool ok = false;
 
             conn.Open();
-
+            SqlTransaction tx = conn.BeginTransaction();
             try
             {
-                // ── Update Withdraw_Control_List → status 99 : Wait Auto Update Location ──
-                #region
-                string sqlHeader =
+                // ── Header → 99 : Wait Auto Update Location (เฉพาะเอกสารที่ยังเป็น 50 กันกดซ้ำ) ──
+                using (SqlCommand cmd = new SqlCommand(
                     "UPDATE Withdraw_Control_List" +
-                    " SET status_id = 99 , update_date = @update_date , confirm_empid = @confirm_empid , confirm_date = @confirm_date" +
-                    " WHERE Doc_No = @Doc_No";
-
-                using (SqlCommand cmd = new SqlCommand(sqlHeader, conn))
+                    " SET status_id = 99 , update_date = @dt , confirm_empid = @emp , confirm_date = @dt" +
+                    " WHERE Doc_No = @Doc_No AND status_id = 50", conn, tx))
                 {
                     cmd.Parameters.AddWithValue("@Doc_No", Doc_No);
-                    cmd.Parameters.AddWithValue("@update_date", DateTime.Now);
-                    cmd.Parameters.AddWithValue("@confirm_empid", empId);
-                    cmd.Parameters.AddWithValue("@confirm_date", DateTime.Now);
-                    cmd.ExecuteNonQuery();
+                    cmd.Parameters.AddWithValue("@dt", now);
+                    cmd.Parameters.AddWithValue("@emp", empId);
+                    if (cmd.ExecuteNonQuery() == 0)
+                        throw new InvalidOperationException("สถานะเอกสารเปลี่ยนไปแล้ว (ไม่ใช่ 50) กรุณารีเฟรชหน้า");
                 }
-                #endregion
 
-                // ── Update Withdraw_List → status 99 ──
-                #region
-                string sqlList =
-                    "UPDATE Withdraw_List" +
-                    " SET status_id = 99" +
-                    " WHERE Doc_No = @Doc_No";
+                // ── รายการ → 99 + Status / ผู้รับผิดชอบ : เดิม (snapshot จากอุปกรณ์ตอนนี้) / ใหม่ (ที่ AAD เลือก) ──
+                foreach (DataRow r in BorrowListDT.Rows)
+                {
+                    if (GetVal(r, "CompareData") == "Delete") continue;
 
-                using (SqlCommand cmd = new SqlCommand(sqlList, conn))
+                    using (SqlCommand cmd = new SqlCommand(
+                        "UPDATE W SET W.status_id = 99 , W.update_date = @dt ," +
+                        "       W.Old_Status_Id = V.status_id , W.New_Status_Id = @st ," +
+                        "       W.Old_Responsible = CAST(V.rsp_empID AS nvarchar(50)) , W.New_Responsible = @rp" +
+                        " FROM Withdraw_List W" +
+                        " LEFT JOIN Tool_Equipment_List_View V" +
+                        "   ON W.tool_id = V.tool_id AND W.sub_id = V.sub_no AND W.system_id = V.sys_status" +
+                        " WHERE W.Doc_No = @doc AND W.tool_id = @tid AND W.sub_id = @sid AND W.system_id = @sys", conn, tx))
+                    {
+                        cmd.Parameters.AddWithValue("@dt", now);
+                        cmd.Parameters.AddWithValue("@st", ToDbVal(r, "Use_StatusId"));
+                        cmd.Parameters.AddWithValue("@rp", ToDbVal(r, "Resp_EmpId"));
+                        cmd.Parameters.AddWithValue("@doc", Doc_No);
+                        cmd.Parameters.AddWithValue("@tid", ToDbVal(r, "ToolId"));
+                        cmd.Parameters.AddWithValue("@sid", ToDbVal(r, "ToolSub"));
+                        cmd.Parameters.AddWithValue("@sys", ToDbVal(r, "SystemId"));
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                // ── กันตกหล่น : รายการอื่นในเอกสาร → 99 (เหมือนพฤติกรรมเดิม) ──
+                using (SqlCommand cmd = new SqlCommand(
+                    "UPDATE Withdraw_List SET status_id = 99 WHERE Doc_No = @Doc_No AND ISNULL(status_id, 0) <> 99", conn, tx))
                 {
                     cmd.Parameters.AddWithValue("@Doc_No", Doc_No);
                     cmd.ExecuteNonQuery();
                 }
-                #endregion
+
+                tx.Commit();
+                ok = true;
             }
             catch (Exception ex)
             {
-                alert_toast("เกิดข้อผิดพลาด : " + ex.Message, "Error", "error", "10000");
+                try { tx.Rollback(); } catch { }
+                alert_toast("AAD Confirm ไม่สำเร็จ : " + ex.Message, "Error", "error", "10000");
             }
             finally
             {
-                string alert_info = "Confirm Request";
-                conn.Close(); // ✅ ปิดทุกครั้ง
-
-                //alert_toast("Doc No : " + Doc_No, alert_info, "success", "2000");
-
-                string jsDoc = HttpUtility.JavaScriptStringEncode(Doc_No);
-                string script =
-                    "document.getElementById('loadingOverlay').style.display = 'block';" +
-                    "if (typeof showToast === 'function') {" +
-                    "  showToast('Doc No : " + jsDoc + "', { title: 'Confirm Request', type: 'success', duration: 2000 });" +
-                    "}" +
-                    "setTimeout(function () { window.location.href = 'ApproveStatus.aspx'; }, 2000);";
-
-                ScriptManager.RegisterStartupScript(
-                    this, this.GetType(), "redirectScript", script, true);
+                if (conn.State == ConnectionState.Open) conn.Close();
             }
+
+            if (!ok) return;
+
+            string jsDoc = HttpUtility.JavaScriptStringEncode(Doc_No);
+            string script =
+                "var m=document.getElementById('" + pnlConfirmModal.ClientID + "'); if(m) m.style.display='none';" +
+                "document.getElementById('loadingOverlay').style.display = 'block';" +
+                "if (typeof showToast === 'function') {" +
+                "  showToast('Doc No : " + jsDoc + "', { title: 'AAD Confirm เรียบร้อย', type: 'success', duration: 2000 });" +
+                "}" +
+                "setTimeout(function () { window.location.href = 'ApproveStatus.aspx'; }, 2000);";
+
+            ScriptManager.RegisterStartupScript(this, this.GetType(), "redirectScript", script, true);
         }
         protected void btnConfirm2_Click(object sender, EventArgs e)
         {
@@ -1360,35 +1385,49 @@ namespace Tool_Equipment_Control_System
                 return;
             }
 
+            string reopen = "$('#modal_UploadManual').modal('show');";
+
+            // ✅ whitelist ชื่อไฟล์ (กัน path traversal จาก value ที่ถูกแก้)
+            string target = ddlManualFile.SelectedValue;
+            if (Array.IndexOf(MANUAL_FILES, target) < 0)
+            {
+                alert_toast("ชื่อไฟล์คู่มือไม่ถูกต้อง", "ข้อมูลไม่ถูกต้อง", "warn", "5000");
+                ScriptManager.RegisterStartupScript(this, GetType(), "reopenUpload", reopen, true);
+                return;
+            }
+
             if (!fuManual.HasFile)
             {
                 alert_toast("กรุณาเลือกไฟล์ PDF", "ข้อมูลไม่ครบ", "warn", "5000");
-                ScriptManager.RegisterStartupScript(this, GetType(), "reopenUpload",
-                    "$('#modal_UploadManual').modal('show');", true);
+                ScriptManager.RegisterStartupScript(this, GetType(), "reopenUpload", reopen, true);
                 return;
             }
 
-            string ext = System.IO.Path.GetExtension(fuManual.FileName).ToLower();
-            if (ext != ".pdf" ||
-                (fuManual.PostedFile.ContentType != "application/pdf" &&
-                 fuManual.PostedFile.ContentType != "application/octet-stream"))
+            // ✅ นามสกุล + เนื้อไฟล์ต้องขึ้นต้นด้วย %PDF
+            string ext = Path.GetExtension(fuManual.FileName).ToLower();
+            byte[] head = new byte[4];
+            Stream fs = fuManual.PostedFile.InputStream;
+            int n = fs.Read(head, 0, 4);
+            fs.Position = 0;
+            bool isPdf = n == 4 && head[0] == 0x25 && head[1] == 0x50 && head[2] == 0x44 && head[3] == 0x46;
+
+            if (ext != ".pdf" || !isPdf)
             {
                 alert_toast("อนุญาตเฉพาะไฟล์ PDF เท่านั้น", "ไฟล์ไม่ถูกต้อง", "warn", "5000");
-                ScriptManager.RegisterStartupScript(this, GetType(), "reopenUpload",
-                    "$('#modal_UploadManual').modal('show');", true);
+                ScriptManager.RegisterStartupScript(this, GetType(), "reopenUpload", reopen, true);
                 return;
             }
 
-            string fullPath = System.IO.Path.Combine(ManualFolder, ManualFileName);
+            string fullPath = Path.Combine(MANUAL_FOLDER, target + ".pdf");
 
             try
             {
-                if (!System.IO.Directory.Exists(ManualFolder))
-                    System.IO.Directory.CreateDirectory(ManualFolder);
+                if (!Directory.Exists(MANUAL_FOLDER))
+                    Directory.CreateDirectory(MANUAL_FOLDER);
 
-                fuManual.PostedFile.SaveAs(fullPath);
+                fuManual.PostedFile.SaveAs(fullPath);   // ทับไฟล์เดิม
 
-                alert_toast("อัปโหลด Manual สำเร็จ", "Upload Complete", "success", "3000");
+                alert_toast("อัปโหลด " + target + ".pdf สำเร็จ", "Upload Complete", "success", "3000");
                 ScriptManager.RegisterStartupScript(this, GetType(), "closeUpload",
                     "$('#modal_UploadManual').modal('hide');", true);
             }
@@ -2706,6 +2745,297 @@ namespace Tool_Equipment_Control_System
 
         #endregion
 
+        #region --- AAD Confirm : Modal + Status Use / ผู้รับผิดชอบ (อ้างอิง NotificationOfChange) ---
+
+        /// <summary>master Status Use (tool_equipment_status)</summary>
+        private DataTable GetStatusUseMaster()
+        {
+            if (_statusUseM != null) return _statusUseM;
+            dc.QryDT_P(conn, "SELECT status_id, status_name FROM tool_equipment_status ORDER BY status_id");
+            _statusUseM = dc.dt.Copy();
+            return _statusUseM;
+        }
+
+        /// <summary>master ผู้รับผิดชอบทั้งหมด (กรองตาม Dept ในหน่วยความจำ)</summary>
+        private DataTable GetResponsibleMaster()
+        {
+            if (_respM != null) return _respM;
+            dc.QryDT_P(conn,
+                "SELECT dept_code, pic_dept, emp_id FROM Responsible_Dept" +
+                " WHERE emp_id IS NOT NULL AND LTRIM(RTRIM(emp_id)) <> ''" +
+                " ORDER BY dept_code, emp_id");
+            _respM = dc.dt.Copy();
+            return _respM;
+        }
+
+        /// <summary>ผู้รับผิดชอบของ Use Dept (WHERE dept_code = Use Dept)</summary>
+        private List<DataRow> RespOfDept(string useDept)
+        {
+            var list = new List<DataRow>();
+            string d = (useDept ?? "").Trim();
+            if (d == "") return list;
+            foreach (DataRow m in GetResponsibleMaster().Rows)
+                if (m["dept_code"] != DBNull.Value && m["dept_code"].ToString().Trim() == d) list.Add(m);
+            return list;
+        }
+
+        private string RespText(DataRow m)
+        {
+            string name = m["pic_dept"] == DBNull.Value ? "" : m["pic_dept"].ToString().Trim();
+            string id = m["emp_id"].ToString().Trim();
+            return name == "" ? id : name + " (" + id + ")";
+        }
+
+        /// <summary>AAD Confirm ได้เฉพาะ mode=confirm และ status 50</summary>
+        private bool IsAadEditable()
+        {
+            // ViewState["MODE"] ถูก reset ทุก Page_Load → อ่านจาก QueryString แทน
+            string mode = (Request.QueryString["mode"] ?? "").ToLower();
+            return mode == "confirm" && Convert.ToString(ViewState["STATUS_ID"]) == "50";
+        }
+
+        /// <summary>เพิ่มคอลัมน์ใน BorrowListDT (เผื่อ ViewState ของหน้าที่เปิดค้างไว้ก่อนอัปเดตโค้ด)</summary>
+        private void EnsureAadCols(DataTable dt)
+        {
+            if (!dt.Columns.Contains("Use_StatusId")) dt.Columns.Add("Use_StatusId", typeof(string));
+            if (!dt.Columns.Contains("Resp_EmpId")) dt.Columns.Add("Resp_EmpId", typeof(string));
+        }
+
+        private string RowKey(DataRow r)
+        {
+            return GetVal(r, "ToolId") + "|" + GetVal(r, "ToolSub") + "|" + GetVal(r, "SystemId");
+        }
+
+        private string ResolveName(DataTable master, string idCol, string nameCol, string id)
+        {
+            if (master == null || string.IsNullOrEmpty(id)) return "";
+            foreach (DataRow r in master.Rows)
+            {
+                if (r[idCol] == DBNull.Value) continue;
+                if (r[idCol].ToString().Trim() == id.Trim())
+                    return r[nameCol] == DBNull.Value ? "" : r[nameCol].ToString().Trim();
+            }
+            return "";
+        }
+
+        private string DeptDisplay(string code)
+        {
+            string name = ResolveName((DataTable)ViewState["DEPT_MASTER"], "dept_code", "dept_name2", code);
+            return name == "" ? code : code + " : " + name;
+        }
+
+        /// <summary>Status / ผู้รับผิดชอบ ปัจจุบันของอุปกรณ์ในเอกสาร (key = tool|sub|sys)</summary>
+        private Dictionary<string, DataRow> GetCurrentStatusResp(string Doc_No)
+        {
+            var map = new Dictionary<string, DataRow>();
+            dc.QryDT_P(conn,
+                "SELECT CAST(A.tool_id AS nvarchar(50)) AS tid, CAST(A.sub_id AS nvarchar(50)) AS sid," +
+                "       CAST(A.system_id AS nvarchar(50)) AS sys," +
+                "       S.status_name, CAST(V.rsp_empID AS nvarchar(50)) AS rsp_empID, R.pic_dept" +
+                " FROM Withdraw_List A" +
+                " LEFT JOIN Tool_Equipment_List_View V" +
+                "   ON A.tool_id = V.tool_id AND A.sub_id = V.sub_no AND A.system_id = V.sys_status" +
+                " LEFT JOIN tool_equipment_status S ON S.status_id = V.status_id" +
+                " OUTER APPLY (SELECT TOP 1 pic_dept FROM Responsible_Dept RD" +
+                "              WHERE LTRIM(RTRIM(RD.emp_id)) = LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50))))) R" +
+                " WHERE A.Doc_No = @d",
+                new SqlParameter("@d", SqlDbType.NVarChar) { Value = Doc_No });
+
+            if (dc.dt == null) return map;
+            foreach (DataRow r in dc.dt.Copy().Rows)
+            {
+                string k = GetVal(r, "tid") + "|" + GetVal(r, "sid") + "|" + GetVal(r, "sys");
+                if (!map.ContainsKey(k)) map[k] = r;
+            }
+            return map;
+        }
+
+        /// <summary>ตาราง + Dropdown ใน Modal AAD Confirm</summary>
+        private void BuildConfirmSummary()
+        {
+            DataTable src = BorrowListDT;
+            EnsureAadCols(src);
+            BorrowListDT = src;
+
+            DataTable modelM = (DataTable)ViewState["MODEL_MASTER"];
+            DataTable cellM = GetCellMaster().Copy();
+            DataTable stationM = GetStationMaster().Copy();
+            var cur = GetCurrentStatusResp(litIssueNo.Text.Trim());
+
+            var dt = new DataTable();
+            foreach (string c in new[] { "RowKey", "FixAssetNo", "ControlNo", "ToolNo",
+                                         "OldDept", "OldModel", "OldCell", "OldStation", "OldStatus", "OldResp",
+                                         "NewDept", "NewModel", "NewCell", "NewStation",
+                                         "UseDept", "StatusId", "RespEmpId" })
+                dt.Columns.Add(c, typeof(string));
+            dt.Columns.Add("RowNo", typeof(int));
+
+            int no = 1;
+            foreach (DataRow r in src.Rows)
+            {
+                if (GetVal(r, "CompareData") == "Delete") continue;
+
+                DataRow c;
+                cur.TryGetValue(RowKey(r), out c);
+
+                DataRow n = dt.NewRow();
+                n["RowKey"] = RowKey(r);
+                n["RowNo"] = no++;
+                n["FixAssetNo"] = GetVal(r, "FixAssetNo");
+                n["ControlNo"] = GetVal(r, "ControlNo");
+                n["ToolNo"] = GetVal(r, "ToolNo");
+
+                n["OldDept"] = GetVal(r, "DeptCode");
+                n["OldModel"] = GetVal(r, "ModelName");
+                n["OldCell"] = GetVal(r, "CellName");
+                n["OldStation"] = GetVal(r, "StationName");
+                n["OldStatus"] = c == null ? "" : GetVal(c, "status_name");
+                string rspId = c == null ? "" : GetVal(c, "rsp_empID");
+                string rspNm = c == null ? "" : GetVal(c, "pic_dept");
+                n["OldResp"] = rspId == "" ? "" : (rspNm == "" ? rspId : rspNm + " (" + rspId + ")");
+
+                n["NewDept"] = DeptDisplay(GetVal(r, "Use_DeptCode"));
+                n["NewModel"] = GetVal(r, "HD_Model") == "txt" ? GetVal(r, "Add_Model")
+                              : ResolveName(modelM, "model_id", "model_name", GetVal(r, "Use_ModelId"));
+                n["NewCell"] = GetVal(r, "HD_Cell") == "txt" ? GetVal(r, "Add_Cell")
+                              : ResolveName(cellM, "location2_id", "location2_name", GetVal(r, "Use_CellId"));
+                n["NewStation"] = GetVal(r, "HD_Station") == "txt" ? GetVal(r, "Add_Station")
+                              : ResolveName(stationM, "location3_id", "location3_name", GetVal(r, "Use_StationId"));
+
+                n["UseDept"] = GetVal(r, "Use_DeptCode");
+                n["StatusId"] = GetVal(r, "Use_StatusId");
+                n["RespEmpId"] = GetVal(r, "Resp_EmpId");
+                dt.Rows.Add(n);
+            }
+
+            litCfmDoc.Text = Server.HtmlEncode(litIssueNo.Text.Trim());
+            litCfmSummary.Text =
+                "<div class='wcf-summary'><b>สรุป :</b>" +
+                "<span class='wcf-badge wcf-ok'>✓ เบิกอุปกรณ์ " + dt.Rows.Count + " รายการ</span></div>";
+
+            gvConfirmSummary.DataSource = dt;
+            gvConfirmSummary.DataBind();
+            if (gvConfirmSummary.HeaderRow != null)
+                gvConfirmSummary.HeaderRow.TableSection = TableRowSection.TableHeader;   // ให้ CSS thead ทำงาน
+        }
+
+        /// <summary>bind Dropdown Status Use / ผู้รับผิดชอบ ในแถว Modal</summary>
+        protected void gvConfirmSummary_RowDataBound(object sender, GridViewRowEventArgs e)
+        {
+            if (e.Row.RowType != DataControlRowType.DataRow) return;
+            DataRowView drv = (DataRowView)e.Row.DataItem;
+
+            var ddlSt = e.Row.FindControl("ddlStatusUse") as DropDownList;
+            var ddlRp = e.Row.FindControl("ddlResponsible") as DropDownList;
+            if (ddlSt == null || ddlRp == null) return;
+
+            ddlSt.Items.Clear();
+            ddlRp.Items.Clear();
+
+            // ── Status Use : ค่าเริ่มต้นตาม Use Dept (5505 = Spare , อื่น = Use) ──
+            ddlSt.Items.Add(new ListItem("-- Select --", ""));
+            foreach (DataRow m in GetStatusUseMaster().Rows)
+                ddlSt.Items.Add(new ListItem(m["status_name"].ToString().Trim(), m["status_id"].ToString().Trim()));
+
+            string st = Convert.ToString(drv["StatusId"]);
+            if (st == "") st = DefaultStatusUse(Convert.ToString(drv["UseDept"]));
+            if (ddlSt.Items.FindByValue(st) != null) ddlSt.SelectedValue = st;
+
+            // ── ผู้รับผิดชอบ : WHERE dept_code = Use Dept , ค่าเริ่มต้น = รายชื่อแรก ──
+            foreach (DataRow m in RespOfDept(Convert.ToString(drv["UseDept"])))
+                ddlRp.Items.Add(new ListItem(RespText(m), m["emp_id"].ToString().Trim()));
+
+            string rp = Convert.ToString(drv["RespEmpId"]);
+            if (rp != "" && ddlRp.Items.FindByValue(rp) == null)
+                ddlRp.Items.Insert(0, new ListItem(rp, rp));
+            if (ddlRp.Items.Count == 0)
+                ddlRp.Items.Add(new ListItem("-- ไม่มีผู้รับผิดชอบของ Dept นี้ --", ""));
+
+            if (rp != "") ddlRp.SelectedValue = rp;
+            else ddlRp.SelectedIndex = 0;
+
+            // ช่องที่ต้องตรวจ = สีเหลือง / ยังไม่มีค่า = ขอบแดง
+            ddlSt.CssClass = "form-control aad-ddl" + (ddlSt.SelectedValue == "" ? " aad-ddl-empty" : "");
+            ddlRp.CssClass = "form-control aad-ddl" + (ddlRp.SelectedValue == "" ? " aad-ddl-empty" : "");
+        }
+
+        /// <summary>อ่าน Dropdown ใน Modal → BorrowListDT + ตรวจครบ</summary>
+        private bool ReadAndValidateConfirmModal()
+        {
+            DataTable dt = BorrowListDT;
+            EnsureAadCols(dt);
+            var msgs = new List<string>();
+            int no = 0;
+
+            foreach (GridViewRow gr in gvConfirmSummary.Rows)
+            {
+                if (gr.RowType != DataControlRowType.DataRow) continue;
+                no++;
+
+                var hf = gr.FindControl("hfCfmKey") as HiddenField;
+                var ddlSt = gr.FindControl("ddlStatusUse") as DropDownList;
+                var ddlRp = gr.FindControl("ddlResponsible") as DropDownList;
+                if (hf == null || ddlSt == null || ddlRp == null) continue;
+
+                DataRow row = null;
+                foreach (DataRow r in dt.Rows)
+                    if (GetVal(r, "CompareData") != "Delete" && RowKey(r) == hf.Value) { row = r; break; }
+                if (row == null) continue;
+
+                row["Use_StatusId"] = ddlSt.SelectedValue == "" ? (object)DBNull.Value : ddlSt.SelectedValue;
+                row["Resp_EmpId"] = ddlRp.SelectedValue == "" ? (object)DBNull.Value : ddlRp.SelectedValue;
+
+                bool noSt = ddlSt.SelectedValue == "";
+                bool noRp = ddlRp.SelectedValue == "";
+                ddlSt.CssClass = "form-control aad-ddl" + (noSt ? " aad-ddl-empty" : "");
+                ddlRp.CssClass = "form-control aad-ddl" + (noRp ? " aad-ddl-empty" : "");
+
+                if (noSt || noRp)
+                    msgs.Add("• รายการที่ " + no + (GetVal(row, "FixAssetNo") != "" ? " (" + GetVal(row, "FixAssetNo") + ")" : "") + " : " +
+                             (noSt ? "ยังไม่เลือก Status Use " : "") +
+                             (noRp ? "ไม่มีผู้รับผิดชอบของ Use Dept " + GetVal(row, "Use_DeptCode") + " (ตรวจตาราง Responsible_Dept)" : ""));
+            }
+            BorrowListDT = dt;
+
+            if (msgs.Count == 0) return true;
+            alert_toast("กรุณาเลือกข้อมูลให้ครบ (ช่องสีเหลือง) :\n" + string.Join("\n", msgs.ToArray()),
+                        "ข้อมูล AAD Confirm ไม่ครบ", "warn", "15000");
+            return false;
+        }
+
+        private void ReopenConfirmModal()
+        {
+            ScriptManager.RegisterStartupScript(this, GetType(), "reopenConfirm",
+                "document.getElementById('" + pnlConfirmModal.ClientID + "').style.display='flex';", true);
+        }
+
+        /// <summary>ค่าเริ่มต้น Status Use : ปลายทาง 5505 → Spare , Dept อื่น → Use</summary>
+        private string DefaultStatusUse(string useDept)
+        {
+            return (useDept ?? "").Trim() == "5505" ? STATUS_SPARE : STATUS_USE;
+        }
+
+        /// <summary>แถบนำทาง + ปุ่มคู่มือ (Status 50 = AAD Confirm) — รูปแบบเดียวกับ borrow_tool2</summary>
+        private string BuildModeGuide(string file)
+        {
+            string title = "ขั้นตอน AAD Confirm";
+            string btnText = "คู่มือ AAD Confirm";
+            string[] steps = { "ตรวจข้อมูลผู้ร้องขอและรายการเบิก",
+                               "ตรวจสถานที่นำไปใช้งาน (Use : Model / Cell / Station)",
+                               "กด AAD Confirm แล้วยืนยัน Status Use / ผู้รับผิดชอบ — ไม่อนุมัติกด Reject (เหตุผล ≥ 10 ตัวอักษร)" };
+
+            var sb = new StringBuilder("<div class='mode-guide'>");
+            sb.Append("<span class='mg-title'>" + Server.HtmlEncode(title) + "</span><ol>");
+            foreach (string s in steps) sb.Append("<li>" + Server.HtmlEncode(s) + "</li>");
+            sb.Append("</ol>");
+            sb.Append("<a href='#' class='mg-btn' onclick=\"return openManualFile('" + file + "');\">" +
+                      "<span class='glyphicon glyphicon-book'></span> " + Server.HtmlEncode(btnText) + "</a>");
+            sb.Append("</div>");
+            return sb.ToString();
+        }
+
+        #endregion
+
         #region --- Get Master ---
 
         private DataTable GetDeptMaster()
@@ -2844,6 +3174,13 @@ namespace Tool_Equipment_Control_System
             if (SendButton != null) SendButton.Visible = false;
             if (ConfirmButton != null) ConfirmButton.Visible = true;
             if (ConfirmButton2 != null) ConfirmButton2.Visible = false;
+
+            // แถบนำทาง + ปุ่มคู่มือ AAD Confirm (Status 50)
+            if (status_id == "50")
+            {
+                litModeGuide.Text = BuildModeGuide("Confirm");
+                litModeGuide.Visible = true;
+            }
 
             //Borrow Note
             borrow_note.Visible = true;

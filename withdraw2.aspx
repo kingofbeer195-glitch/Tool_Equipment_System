@@ -523,7 +523,12 @@
         table.fx-table { border-collapse: separate !important; border-spacing: 0; }
         table.fx-table td.fx-col { position: sticky; z-index: 2; background-color: #ffffff; }
         table.fx-table th.fx-col { position: sticky; top: 0; z-index: 6; }     /* มุมซ้ายบน : อยู่เหนือทั้งแถวและคอลัมน์ */
-        table.fx-table .fx-last { box-shadow: 4px 0 5px -3px rgba(0,0,0,.35); }   /* เงาขอบขวาของโซนที่ Fix */
+        /* Step 3 : เส้นขอบสีดำทั้งหมด ขนาดเท่ากัน 1px — ระหว่างรายการ = เส้นประ / แบ่งโซน = เส้นทึบ */
+        .step3-wrap { border: 1px solid #000 !important; }
+        table.fx-table th { border-bottom: 1px solid #000 !important; }
+        table.fx-table td { border-bottom: 1px dashed #000 !important; }
+        table.fx-table .zone-divider { border-left: 1px solid #000 !important; }    /* ซ้าย Use : Dept */
+        table.fx-table .zone-end { border-right: 1px solid #000 !important; }      /* ขวา No , ขวา Use : Station */
         table.fx-table td.fx-toolno { max-width: 220px; white-space: normal; word-break: break-word; }
     </style>
 
@@ -1065,7 +1070,7 @@
                          </span>
                     </div>
                     <div class="card-body" style="margin-bottom:10px;">
-                        <div class="tbl-wrap" style="max-height: 350px;">
+                        <div class="tbl-wrap step3-wrap" style="max-height: 350px;">
                             <asp:GridView ID="gvBorrowList" runat="server"
                                 CssClass="data-table change-table fixed-header fx-table"
                                 style="min-width:1800px;"

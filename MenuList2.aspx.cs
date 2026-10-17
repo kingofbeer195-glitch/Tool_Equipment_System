@@ -50,18 +50,20 @@ namespace Tool_Equipment_Control_System
         }
         protected void Check_Admin()
         {
+            // 1.1 เมนูกำลังพัฒนา : แสดงทั้ง User และ Admin
+            menuChangeRequest.Visible = true;   // แจ้งเปลี่ยน
+            menuTanaoroshi.Visible = true;      // Tanaoroshi
+
             if (Session["admin"] == null) return;
 
             string Admin = Session["admin"].ToString();
 
             if (Admin == "99")
             {
-                // เมนูส่วนอื่นคงเดิม
-                menuChangeRequest.Visible = true;
-                menuChangeRequest.Visible = true;
-                menuStorage.Visible = true;
-                menuTanaoroshi.Visible = true;
-                menuDashboard.Visible = true;
+                // 1.2 เมนูกำลังพัฒนา : แสดงเฉพาะ Admin
+                menuStorage.Visible = true;     // จัดเก็บอุปกรณ์
+                menuDashboard.Visible = true;   // Dashboard
+                menuEquipment.Visible = true;   // Equipment
                 menuEquipment.Visible = true;
                 pnlMenu.Visible = true;
 

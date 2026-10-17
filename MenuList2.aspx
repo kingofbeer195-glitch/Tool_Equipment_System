@@ -320,6 +320,50 @@
 
     </style>
 
+    <%--Menu : กำลังพัฒนา (Under Development)--%>
+    <style>
+        .menu-card.is-dev {
+            background: repeating-linear-gradient(135deg, #262b3b 0 10px, #1e2332 10px 20px);
+            border: 1px dashed var(--accent);
+        }
+        .menu-card.is-dev .card-icon {
+            filter: grayscale(55%);
+            opacity: .75;
+        }
+        .menu-card.is-dev:hover {
+            border-color: var(--accent);
+            box-shadow: 0 16px 40px rgba(245,166,35,0.18);
+        }
+        .menu-card.is-dev::before { background: var(--accent); }
+
+        /* ป้าย "กำลังพัฒนา" มุมซ้ายบน (มุมขวาบนใช้กับ badge แจ้งเตือน) */
+        .dev-tag {
+            position: absolute;
+            top: 8px; left: 8px;
+            z-index: 4;
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 8px;
+            font-size: 11px; font-weight: 700; line-height: 1.5;
+            letter-spacing: .03em;
+            color: #1e2332;
+            background: var(--accent);
+            border-radius: 999px;
+            box-shadow: 0 2px 6px rgba(245,166,35,.35);
+        }
+
+        /* ยังไม่มีหน้าให้เข้า : คลิกไม่ได้ */
+        .menu-card.is-dev.is-locked {
+            cursor: not-allowed;
+            pointer-events: none;
+            opacity: .7;
+        }
+
+        /* Dark mode : การ์ดเป็นสีขาว */
+        body.dark .menu-card.is-dev {
+            background: repeating-linear-gradient(135deg, #ffffff 0 10px, #f4f5f7 10px 20px);
+        }
+    </style>
+
     <%--Notification Badge--%>
     <style>
         .menu-badge {
@@ -624,9 +668,10 @@
                                 </div>
                             </a>
 
-                            <%--Menu : Change Request แจ้งเปลี่ยนแปลง--%>
+                            <%--Menu : Change Request แจ้งเปลี่ยนแปลง (กำลังพัฒนา : User + Admin)--%>
                             <div id="menuChangeRequest" runat="server" visible="false">
-                                <a href="NotificationOfChange.aspx?issue_no=0" class="menu-card card-orange">                                
+                                <a href="NotificationOfChange.aspx?issue_no=0" class="menu-card card-orange is-dev" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                    <span class="dev-tag">🚧 กำลังพัฒนา</span>
                                     <div class="card-icon">
                                         <img src="images/location.png" alt="icon" />
                                     </div>
@@ -637,9 +682,10 @@
                                 </a>
                             </div>
 
-                            <%--Menu : Storage แจ้งจัดเก็บ--%>
+                            <%--Menu : Storage แจ้งจัดเก็บ (กำลังพัฒนา : Admin)--%>
                             <div id="menuStorage" runat="server" visible="false">
-                                <a href="storage.aspx?issue_no=0" class="menu-card card-orange">
+                                <a href="storage.aspx?issue_no=0" class="menu-card card-orange is-dev" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                    <span class="dev-tag">🚧 กำลังพัฒนา</span>
                                     <div class="card-icon">
                                         <img src="images/storage.png" alt="icon" />
                                     </div>
@@ -650,9 +696,10 @@
                                 </a>
                             </div>
 
-                            <%--Menu : Tanaoroshi--%>
+                            <%--Menu : Tanaoroshi (กำลังพัฒนา : User + Admin)--%>
                             <div id="menuTanaoroshi" runat="server" visible="false">
-                                <a href="tool_equipment_tanaoroshi.aspx" class="menu-card card-orange">
+                                <a href="tool_equipment_tanaoroshi.aspx" class="menu-card card-orange is-dev" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                    <span class="dev-tag">🚧 กำลังพัฒนา</span>
                                     <div class="card-icon" style="opacity:1;">
                                         <img src="images/tanaoroshi2.png" alt="icon" style="max-width:160%;" />
                                     </div>
@@ -711,10 +758,11 @@
                                 </div>
                             </a>
 
-                            <%--Menu : Dashboard--%>
+                            <%--Menu : Dashboard (กำลังพัฒนา : Admin / ยังไม่มีหน้า → คลิกไม่ได้)--%>
                             <div id="menuDashboard" runat="server" visible="false">
-                                <a href="" class="menu-card card-blue" style="background: #adadad;border: 1px solid #ff7474;">
-                                    <div class="card-icon" style="opacity:0.3;">
+                                <a class="menu-card card-blue is-dev is-locked" aria-disabled="true" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                    <span class="dev-tag">🚧 กำลังพัฒนา</span>
+                                    <div class="card-icon">
                                         <img src="images/Dashboard_Icon.png" alt="icon" style="max-width:95%;" />
                                     </div>
                                     <div class="card-text">
@@ -724,10 +772,11 @@
                                 </a>
                             </div>
 
-                            <%--Menu : Equipment --%>
+                            <%--Menu : Equipment (กำลังพัฒนา : Admin)--%>
                             <div id="menuEquipment" runat="server" visible="false">
-                                <a href="CalibrationManagement.aspx" class="menu-card card-green" style="background: #adadad;border: 1px solid #ff7474;">
-                                    <div class="card-icon" style="opacity:0.3;">
+                                <a href="CalibrationManagement.aspx" class="menu-card card-green is-dev" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                    <span class="dev-tag">🚧 กำลังพัฒนา</span>
+                                    <div class="card-icon">
                                         <img src="images/electrical.png" alt="icon" style="max-width:120%;" />
                                     </div>
                                     <div class="card-text">
@@ -813,7 +862,9 @@
                                     </div>
                                 </a>
 
-                                <a id="Setting" runat="server" href="Equipment_Setting.aspx" class="menu-card card-red" style="background: #adadad;border: 1px solid #ff7474;">
+                                <%--Menu : System Setup (กำลังพัฒนา : Admin)--%>
+                                <a id="Setting" runat="server" href="Equipment_Setting.aspx" class="menu-card card-red is-dev" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                    <span class="dev-tag">🚧 กำลังพัฒนา</span>
                                     <div class="card-icon">
                                         <img src="images/settings.png" alt="icon" style="max-width:95%;" />
                                     </div>
@@ -823,8 +874,10 @@
                                     </div>
                                 </a>
 
-                                <a id="AutoBot" runat="server" href="AutoBot.aspx" class="menu-card card-red" style="background: #adadad;border: 1px solid #ff7474;">
-                                    <div class="card-icon" style="opacity:0.3;">
+                                <%--Menu : Auto Bot (กำลังพัฒนา : Admin)--%>
+                                <a id="AutoBot" runat="server" href="AutoBot.aspx" class="menu-card card-red is-dev" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                    <span class="dev-tag">🚧 กำลังพัฒนา</span>
+                                    <div class="card-icon">
                                         <img src="images/autobot.png" alt="icon" style="max-width:90%;" />
                                     </div>
                                     <div class="card-text">

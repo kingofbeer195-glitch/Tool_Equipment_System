@@ -744,45 +744,61 @@ namespace Tool_Equipment_Control_System
         {
             DataTable dt_CL = null;
 
+            string kwRaw = txtSearchCL.Text.Trim();
+            string byRaw = txtEditBy.Text.Trim();
+
+            // โหมด All ต้องมี SEARCH หรือ EDIT BY (กันดึงทั้งตารางจนช้า)
+            if (CLDateMode == "All" && kwRaw == "" && byRaw == "")
+            {
+                SetCLDateMode("Period");
+                alert_toast("โหมด All ต้องกรอก SEARCH หรือ EDIT BY ก่อน — กลับเป็น Period 7 วัน", "ช่วงวันที่", "warn", "5000");
+            }
+
             try
             {
+                string kw = kwRaw.Replace("'", "''");
+                string by = byRaw.Replace("'", "''");
+
+                DateTime dFrom = DateTime.MinValue, dTo = DateTime.MinValue;
+                bool hasFrom = false, hasTo = false;
+                if (CLDateMode == "Period")
+                {
+                    hasFrom = DateTime.TryParse(txtCLDateFrom.Text.Trim(), out dFrom);
+                    hasTo = DateTime.TryParse(txtCLDateTo.Text.Trim(), out dTo);
+                }
+
+                // ===== 1) Edit Location : History_Change_Location =====
                 string where = "";
 
-                // ค้นหาจาก Fix_Asset_No / Control_No / Tool_No
-                if (!string.IsNullOrEmpty(txtSearchCL.Text.Trim()))
-                {
-                    string kw = txtSearchCL.Text.Trim().Replace("'", "''");
+                if (kw != "")
                     where += " AND (H.Fix_Asset_No LIKE '%" + kw + "%'" +
                              " OR H.Control_No LIKE '%" + kw + "%'" +
                              " OR H.Tool_No LIKE '%" + kw + "%')";
-                }
 
-                // Filter Edit By
-                if (!string.IsNullOrEmpty(txtEditBy.Text.Trim()))
-                    where += " AND H.Edit_By LIKE '%" + txtEditBy.Text.Trim().Replace("'", "''") + "%'";
+                if (by != "")
+                    where += " AND H.Edit_By LIKE '%" + by + "%'";
 
-                // Filter Edit Date : เฉพาะโหมด Period (All = ไม่สนใจวันที่)
-                if (CLDateMode == "Period")
-                {
-                    DateTime dFrom, dTo;
+                if (hasFrom) where += " AND H.Edit_Date >= '" + dFrom.ToString("yyyy-MM-dd") + " 00:00:00'";
+                if (hasTo)   where += " AND H.Edit_Date <= '" + dTo.ToString("yyyy-MM-dd") + " 23:59:59'";
 
-                    if (DateTime.TryParse(txtCLDateFrom.Text.Trim(), out dFrom))
-                        where += " AND H.Edit_Date >= '" + dFrom.ToString("yyyy-MM-dd") + " 00:00:00'";
+                dt_CL = GetEditLocationRows(where);
 
-                    if (DateTime.TryParse(txtCLDateTo.Text.Trim(), out dTo))
-                        where += " AND H.Edit_Date <= '" + dTo.ToString("yyyy-MM-dd") + " 23:59:59'";
-                }
+                // ===== 2) Change : แจ้งเปลี่ยนแปลง (AAD2 ที่ AAD Confirm แล้ว) =====
+                string whereC = "";
 
-                string str = "SELECT H.*, " +
-                             " SO.status_name AS Old_Status_Name, SN.status_name AS New_Status_Name" +
-                             " FROM tool_eduipment_system.dbo.History_Change_Location H" +
-                             " LEFT JOIN tool_equipment_status SO ON H.Old_Status_Id = SO.status_id" +
-                             " LEFT JOIN tool_equipment_status SN ON H.New_Status_Id = SN.status_id" +
-                             " WHERE 1 = 1 " + where +
-                             " ORDER BY H.Edit_Date DESC, H.History_id DESC";
+                if (kw != "")
+                    whereC += " AND (A.FixAsset LIKE '%" + kw + "%'" +
+                              " OR A.ControlNo LIKE '%" + kw + "%'" +
+                              " OR B.tool_no LIKE '%" + kw + "%')";
 
-                dc.QryDT(conn, str);
-                dt_CL = dc.dt;
+                // EDIT BY : ผู้แจ้ง หรือ ผู้ AAD Confirm
+                if (by != "")
+                    whereC += " AND (C.issue_empid LIKE '%" + by + "%' OR C.confirm_empid LIKE '%" + by + "%')";
+
+                if (hasFrom) whereC += " AND ISNULL(C.confim_date, C.update_date) >= '" + dFrom.ToString("yyyy-MM-dd") + " 00:00:00'";
+                if (hasTo)   whereC += " AND ISNULL(C.confim_date, C.update_date) <= '" + dTo.ToString("yyyy-MM-dd") + " 23:59:59'";
+
+                dt_CL = MergeByEditDate(dt_CL, GetChangeRequestRows(whereC));
             }
             catch (Exception ex)
             {
@@ -810,6 +826,85 @@ namespace Tool_Equipment_Control_System
             return (r.Table.Columns.Contains(col) && r[col] != DBNull.Value) ? r[col].ToString().Trim() : "";
         }
 
+        // --- แหล่งที่ 1 : Edit Location (History_Change_Location) — where ใช้ alias H
+        private DataTable GetEditLocationRows(string where)
+        {
+            string str = "SELECT H.*, 'EDIT' AS Source, CAST(NULL AS nvarchar(50)) AS Doc_No, CAST(NULL AS nvarchar(50)) AS Issue_By," +
+                         " SO.status_name AS Old_Status_Name, SN.status_name AS New_Status_Name" +
+                         " FROM tool_eduipment_system.dbo.History_Change_Location H" +
+                         " LEFT JOIN tool_equipment_status SO ON H.Old_Status_Id = SO.status_id" +
+                         " LEFT JOIN tool_equipment_status SN ON H.New_Status_Id = SN.status_id" +
+                         " WHERE 1 = 1 " + where +
+                         " ORDER BY H.Edit_Date DESC, H.History_id DESC";
+            dc.QryDT(conn, str);
+            return dc.dt == null ? null : dc.dt.Copy();   // copy : dc.dt ถูกใช้ซ้ำในการ query ครั้งถัดไป
+        }
+
+        // --- แหล่งที่ 2 : Change แจ้งเปลี่ยนแปลง (AAD2) — where ใช้ alias A (List) / B (View) / C (Control)
+        //     เฉพาะเอกสารที่ AAD Confirm แล้ว (99 รออัพเดต / 100 เสร็จ) และรายการที่ไม่ถูก reject
+        //     ⚠️ NotificationofChange_List เก็บเฉพาะค่าใหม่ → Old_* เป็น NULL
+        private DataTable GetChangeRequestRows(string where)
+        {
+            string str =
+                // CAST ให้ชนิดตรงกับ History_Change_Location (DataTable.Merge ต้องชนิดเดียวกัน)
+                "SELECT CAST(A.tool_id AS nvarchar(50)) AS Tool_id, CAST(A.sub_id AS nvarchar(50)) AS Tool_sub," +
+                "       CAST(A.system_id AS nvarchar(10)) AS System_id," +
+                "       CAST(A.FixAsset AS nvarchar(100)) AS Fix_Asset_No, CAST(A.ControlNo AS nvarchar(100)) AS Control_No," +
+                "       CAST(B.tool_no AS nvarchar(200)) AS Tool_No," +
+                "       CAST(A.Use_Dept AS nvarchar(50)) AS New_DeptCode, CAST(A.Resp_Name AS nvarchar(100)) AS New_Responsible," +
+                "       CAST(CASE WHEN A.HD_Model   = 'txt' THEN A.New_Model   ELSE M.model_name      END AS nvarchar(200)) AS New_Model_Text," +
+                "       CAST(CASE WHEN A.HD_Cell    = 'txt' THEN A.New_Cell    ELSE L2.location2_name END AS nvarchar(200)) AS New_Cell_Text," +
+                "       CAST(CASE WHEN A.HD_Station = 'txt' THEN A.New_Station ELSE L3.location3_name END AS nvarchar(200)) AS New_Station_Text," +
+                "       S.status_name AS New_Status_Name," +
+                "       CAST(C.confirm_empid AS nvarchar(50)) AS Edit_By, ISNULL(C.confim_date, C.update_date) AS Edit_Date," +
+                "       CAST(C.reason_remark AS nvarchar(500)) AS Remark," +
+                "       'CHANGE' AS Source, CAST(C.Doc_No AS nvarchar(50)) AS Doc_No, CAST(C.issue_empid AS nvarchar(50)) AS Issue_By" +
+                " FROM NotificationofChange_List A" +
+                " INNER JOIN NotificationofChange_Control_List C ON C.Doc_No = A.Doc_No" +
+                " LEFT JOIN Tool_Equipment_List_View B" +
+                "   ON A.tool_id = B.tool_id AND A.sub_id = B.sub_no AND A.system_id = B.sys_status" +
+                " LEFT JOIN jig_tool_system.dbo.draw_master_model M" +
+                "   ON CAST(M.model_id AS nvarchar(50)) = LTRIM(RTRIM(CAST(A.Use_Model_Id AS nvarchar(50))))" +
+                " LEFT JOIN jig_tool_system.dbo.master_location2 L2" +
+                "   ON CAST(L2.location2_id AS nvarchar(50)) = LTRIM(RTRIM(CAST(A.Use_Cell_Id AS nvarchar(50))))" +
+                " LEFT JOIN jig_tool_system.dbo.master_location3 L3" +
+                "   ON CAST(L3.location3_id AS nvarchar(50)) = LTRIM(RTRIM(CAST(A.Use_Station_Id AS nvarchar(50))))" +
+                " LEFT JOIN tool_equipment_status S ON S.status_id = A.Use_Status_Id" +
+                " WHERE C.status_id IN (99, 100)" +
+                "   AND ISNULL(A.reject_flag, '') <> 'reject'" +
+                "   AND A.status_id <> 999 " + where +
+                " ORDER BY Edit_Date DESC";
+            dc.QryDT(conn, str);
+            return dc.dt == null ? null : dc.dt.Copy();   // copy : dc.dt ถูกใช้ซ้ำในการ query ครั้งถัดไป
+        }
+
+        // รวม 2 แหล่ง แล้วเรียงตาม Edit_Date ล่าสุดก่อน
+        private DataTable MergeByEditDate(DataTable a, DataTable b)
+        {
+            if (a == null) return b;
+            if (b == null || b.Rows.Count == 0) return a;
+
+            DataTable dt = a.Copy();
+
+            // แถวแจ้งเปลี่ยนไม่มี History_id / Old_* → ปลด constraint ก่อน Merge
+            dt.PrimaryKey = null;
+            foreach (DataColumn col in dt.Columns)
+            {
+                col.AllowDBNull = true;
+                col.AutoIncrement = false;
+                col.ReadOnly = false;
+                col.Unique = false;
+            }
+
+            dt.Merge(b, false, MissingSchemaAction.Add);
+
+            DataView dv = dt.DefaultView;
+            dv.Sort = "Edit_Date DESC";
+            return dv.ToTable();
+        }
+
+        private bool IsChangeRow(DataRow r) { return GetColStr(r, "Source") == "CHANGE"; }
+
         // =====================================================
         //  Filter Events (Tab 2 : History Change Location)
         // =====================================================
@@ -830,7 +925,17 @@ namespace Tool_Equipment_Control_System
         protected void btnReqPeriod_Click(object sender, EventArgs e) { SetReqDateMode("Period"); Bind_HistoryList(); }
         protected void btnReqAll_Click(object sender, EventArgs e)    { SetReqDateMode("All");    Bind_HistoryList(); }
         protected void btnCLPeriod_Click(object sender, EventArgs e)  { SetCLDateMode("Period");  Bind_ChangeLocationList(); }
-        protected void btnCLAll_Click(object sender, EventArgs e)     { SetCLDateMode("All");     Bind_ChangeLocationList(); }
+        protected void btnCLAll_Click(object sender, EventArgs e)
+        {
+            // All ได้เฉพาะเมื่อกรอก SEARCH หรือ EDIT BY (ฝั่ง JS ปิดปุ่มไว้แล้ว — เช็คซ้ำฝั่ง Server)
+            if (txtSearchCL.Text.Trim() == "" && txtEditBy.Text.Trim() == "")
+            {
+                alert_toast("กรุณากรอก SEARCH หรือ EDIT BY ก่อนเลือก All", "ช่วงวันที่", "warn", "4000");
+                return;
+            }
+            SetCLDateMode("All");
+            Bind_ChangeLocationList();
+        }
 
         // Period : เปิดช่องวันที่ + รีเซ็ตเป็น 7 วันล่าสุด / All : ปิดช่องวันที่
         private void SetReqDateMode(string mode)
@@ -1054,6 +1159,19 @@ namespace Tool_Equipment_Control_System
             DataRow r = ToRow(dataItem);
             if (r == null) return "";
 
+            // แจ้งเปลี่ยนแปลง : ไม่มีค่าเดิม → แสดงเฉพาะค่าใหม่ + Doc No
+            if (IsChangeRow(r))
+            {
+                string[] vals = new string[LocFields.Length];
+                for (int k = 0; k < LocFields.Length; k++) vals[k] = GetColStr(r, LocFields[k][2]);
+
+                return "<div class='cl-loc'>" +
+                       "<span class='cl-tag cl-tag-doc'>📄 แจ้งเปลี่ยน " + Enc(GetColStr(r, "Doc_No")) + "</span>" +
+                       "<span class='cl-tag cl-tag-new'>ใหม่</span>" +
+                       BuildPath(vals, null, "") +
+                       "</div>";
+            }
+
             int n = LocFields.Length;
             string[] olds = new string[n];
             string[] news = new string[n];
@@ -1116,6 +1234,20 @@ namespace Tool_Equipment_Control_System
             var sb = new StringBuilder();
             int count = 0;
 
+            // แจ้งเปลี่ยนแปลง : แสดงค่าที่กำหนดใหม่ (ไม่มีค่าเดิมให้เทียบ)
+            if (IsChangeRow(r))
+            {
+                foreach (string[] f in OtherFields)
+                {
+                    string nw = GetColStr(r, f[2]);
+                    if (nw == "") continue;
+                    count++;
+                    sb.Append("<div class='cl-fd-row'><span class='cl-fd-k'>" + Enc(f[0]) + "</span><span class='cl-fd-v'>" +
+                              "<span class='cl-arrow'>➜</span><span class='cl-new'>" + Enc(nw) + "</span></span></div>");
+                }
+                return count == 0 ? "<span class='cl-none'>— ไม่มีการเปลี่ยนแปลงอื่น —</span>" : "<div>" + sb.ToString() + "</div>";
+            }
+
             foreach (string[] f in OtherFields)
             {
                 string o = GetColStr(r, f[1]);
@@ -1149,7 +1281,12 @@ namespace Tool_Equipment_Control_System
             DataRow r = ToRow(dataItem);
             if (r == null) return "";
             string remark = GetColStr(r, "Remark");
-            return remark == "" ? "" : "<div class='cl-note'>📝 " + Enc(remark) + "</div>";
+            string note = remark == "" ? "" : "<div class='cl-note'>📝 " + Enc(remark) + "</div>";
+
+            if (IsChangeRow(r) && GetColStr(r, "Issue_By") != "")
+                note += "<div class='cl-note'>👤 แจ้งโดย " + Enc(GetColStr(r, "Issue_By")) + "</div>";
+
+            return note;
         }
 
         // =====================================================
@@ -1165,17 +1302,17 @@ namespace Tool_Equipment_Control_System
 
             try
             {
-                string str = "SELECT H.*, " +
-                             " SO.status_name AS Old_Status_Name, SN.status_name AS New_Status_Name" +
-                             " FROM tool_eduipment_system.dbo.History_Change_Location H" +
-                             " LEFT JOIN tool_equipment_status SO ON H.Old_Status_Id = SO.status_id" +
-                             " LEFT JOIN tool_equipment_status SN ON H.New_Status_Id = SN.status_id" +
-                             " WHERE H.Tool_id = '" + tool_id.Replace("'", "''") + "'" +
-                             " AND H.Tool_sub = '" + tool_sub.Replace("'", "''") + "'" +
-                             " AND H.System_id = '" + system_id.Replace("'", "''") + "'" +
-                             " ORDER BY H.Edit_Date DESC, H.History_id DESC";
-                dc.QryDT(conn, str);
-                dt_CLHist = dc.dt;
+                string tid = tool_id.Replace("'", "''");
+                string tsub = tool_sub.Replace("'", "''");
+                string sys = system_id.Replace("'", "''");
+
+                DataTable dtEdit = GetEditLocationRows(
+                    " AND H.Tool_id = '" + tid + "' AND H.Tool_sub = '" + tsub + "' AND H.System_id = '" + sys + "'");
+
+                DataTable dtChange = GetChangeRequestRows(
+                    " AND A.tool_id = '" + tid + "' AND A.sub_id = '" + tsub + "' AND A.system_id = '" + sys + "'");
+
+                dt_CLHist = MergeByEditDate(dtEdit, dtChange);
             }
             catch (Exception ex)
             {
@@ -1218,10 +1355,15 @@ namespace Tool_Equipment_Control_System
 
                     sb.Append("<li class='tl-item'>");
                     sb.Append("<span class='tl-dot " + (isLatest ? "" : "done") + "'></span>");
-                    sb.Append("<div class='tl-title'>ครั้งที่ " + seq + " · แก้ไขโดย " + Enc(GetColStr(r, "Edit_By")) +
+                    string who = IsChangeRow(r)
+                        ? "แจ้งเปลี่ยน " + Enc(GetColStr(r, "Doc_No")) + " · Confirm โดย " + Enc(GetColStr(r, "Edit_By"))
+                        : "แก้ไขโดย " + Enc(GetColStr(r, "Edit_By"));
+
+                    sb.Append("<div class='tl-title'>ครั้งที่ " + seq + " · " + who +
                               (isLatest ? " <span class='cl-tag cl-tag-new' style='margin-left:6px;'>ล่าสุด</span>" : "") +
                               "</div>");
-                    sb.Append("<div class='tl-date'>" + Convert.ToDateTime(r["Edit_Date"]).ToString("dd-MMM-yyyy HH:mm") + "</div>");
+                    if (r["Edit_Date"] != DBNull.Value)
+                        sb.Append("<div class='tl-date'>" + Convert.ToDateTime(r["Edit_Date"]).ToString("dd-MMM-yyyy HH:mm") + "</div>");
 
                     sb.Append("<div class='cl-tl-box'>");
                     sb.Append("<div class='cl-sub'>Location (Model › Cell › Station)</div>");

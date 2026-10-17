@@ -249,10 +249,28 @@
                 $('#<%= txtCLDateTo.ClientID %>').focus();
             });
         }
-        $(document).ready(initDatePickers);
+        // Tab Change Location : ปุ่ม All กดได้เมื่อกรอก SEARCH หรือ EDIT BY
+        var CL_SEARCH = '#<%= txtSearchCL.ClientID %>',
+            CL_EDITBY = '#<%= txtEditBy.ClientID %>',
+            CL_ALL    = '#<%= btnCLAll.ClientID %>';
+
+        function syncCLAllBtn() {
+            var $all = $(CL_ALL);
+            if (!$all.length) return;                       // Tab ยังไม่ได้แสดง
+            var hasKey = $.trim($(CL_SEARCH).val() || '') !== '' ||
+                         $.trim($(CL_EDITBY).val() || '') !== '';
+            var isActive = $all.hasClass('active');
+            // ถ้าอยู่โหมด All แล้ว ไม่ต้องปิด (ปิดเฉพาะตอนจะกดเข้า All)
+            $all.toggleClass('is-disabled', !hasKey && !isActive);
+            $all.closest('.date-mode').attr('title',
+                (!hasKey && !isActive) ? 'กรอก SEARCH หรือ EDIT BY ก่อน จึงจะเลือก All ได้' : '');
+        }
+        $(document).on('input keyup change', CL_SEARCH + ',' + CL_EDITBY, syncCLAllBtn);
+
+        $(document).ready(function () { initDatePickers(); syncCLAllBtn(); });
         // ป้องกัน datepicker หายหลัง partial postback (UpdatePanel)
         var prm = Sys.WebForms.PageRequestManager.getInstance();
-        prm.add_endRequest(function () { initDatePickers(); });
+        prm.add_endRequest(function () { initDatePickers(); syncCLAllBtn(); });
     </script>
 
     <%--Date Style--%>
@@ -284,6 +302,11 @@
         .date-mode .dm-btn:hover { background: #eaf1f8; color: #1a3a5c; text-decoration: none; }
         .date-mode .dm-btn.active,
         .date-mode .dm-btn.active:hover { background: #1a3a5c; color: #fff; }
+        .date-mode .dm-btn.is-disabled {
+            pointer-events: none; opacity: .4; color: #8b95b0;
+        }
+        .date-mode[title=""] { cursor: default; }
+        .date-mode:not([title=""])[title] { cursor: not-allowed; }
 
         /* โหมด All : ปิดช่องวันที่ */
         .form-group input.date-input:disabled {
@@ -663,6 +686,7 @@
         .cl-tag-old  { background:#fdecec; color:#b42318; }
         .cl-tag-new  { background:#e3f4e8; color:#16703d; }
         .cl-tag-same { background:#eef1f4; color:#66727f; }
+        .cl-tag-doc  { background:#fff4e0; color:#a15c00; border:1px solid #f5c26b; margin-right:4px; }
 
         /* อุปกรณ์ FA / CT / TL */
         .cl-asset { font-size:12.5px; line-height:1.6; }
@@ -1056,6 +1080,7 @@
                                     <div class="cl-legend">
                                         <span class="cl-tag cl-tag-old">เดิม</span> ค่าก่อนแก้ไข
                                         <span class="cl-tag cl-tag-new">ใหม่</span> ค่าหลังแก้ไข
+                                        <span class="cl-tag cl-tag-doc">📄 แจ้งเปลี่ยน</span> จากเอกสาร Change (AAD Confirm แล้ว)
                                     </div>
                                 </div>
 

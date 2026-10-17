@@ -1127,13 +1127,13 @@
 
                                     <%--Sub--%>
                                     <asp:BoundField DataField="ToolSub" ItemStyle-Width="45px"
-                                        HeaderText="No" HeaderStyle-CssClass="headerGv1 fx-col fx-last" ItemStyle-CssClass="rowGv1 fx-col fx-last" />                                    
+                                        HeaderText="No" HeaderStyle-CssClass="headerGv1 fx-col fx-last zone-end" ItemStyle-CssClass="rowGv1 fx-col fx-last zone-end" />                                    
 
                                     <%--═══════════ โซน CURRENT (4 ช่อง, label อย่างเดียว) ═══════════--%>
 
                                     <%--Current Dept--%>
                                     <asp:BoundField DataField="DeptCode" ItemStyle-Width="100px" HeaderText="Current Dept"
-                                        HeaderStyle-CssClass="hdr-current zone-divider" ItemStyle-CssClass="col-current zone-divider" />
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
 
                                     <%--Current Model--%>
                                     <asp:BoundField DataField="ModelName" ItemStyle-Width="120px" HeaderText="Current Model"

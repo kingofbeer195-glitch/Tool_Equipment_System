@@ -799,6 +799,23 @@ namespace Tool_Equipment_Control_System
                 if (hasTo)   whereC += " AND ISNULL(C.confim_date, C.update_date) <= '" + dTo.ToString("yyyy-MM-dd") + " 23:59:59'";
 
                 dt_CL = MergeByEditDate(dt_CL, GetChangeRequestRows(whereC));
+
+                // ===== 3) Withdraw : เบิกอุปกรณ์ (Withdraw_List status 99 / 100) =====
+                string whereW = "";
+
+                if (kw != "")
+                    whereW += " AND (W.FixAsset LIKE '%" + kw + "%'" +
+                              " OR W.ControlNo LIKE '%" + kw + "%'" +
+                              " OR B.tool_no LIKE '%" + kw + "%')";
+
+                // EDIT BY : ผู้เบิก หรือ ผู้ AAD Confirm
+                if (by != "")
+                    whereW += " AND (C.issue_empid LIKE '%" + by + "%' OR C.confirm_empid LIKE '%" + by + "%')";
+
+                if (hasFrom) whereW += " AND ISNULL(C.confirm_date, C.update_date) >= '" + dFrom.ToString("yyyy-MM-dd") + " 00:00:00'";
+                if (hasTo)   whereW += " AND ISNULL(C.confirm_date, C.update_date) <= '" + dTo.ToString("yyyy-MM-dd") + " 23:59:59'";
+
+                dt_CL = MergeByEditDate(dt_CL, GetWithdrawRows(whereW));
             }
             catch (Exception ex)
             {
@@ -883,6 +900,7 @@ namespace Tool_Equipment_Control_System
         {
             if (a == null) return b;
             if (b == null || b.Rows.Count == 0) return a;
+            if (a.Rows.Count == 0 && a.Columns.Count == 0) return b;
 
             DataTable dt = a.Copy();
 
@@ -903,7 +921,69 @@ namespace Tool_Equipment_Control_System
             return dv.ToTable();
         }
 
+        // --- แหล่งที่ 3 : Withdraw เบิกอุปกรณ์ (AAD3) — where ใช้ alias W (List) / B (View) / C (Control)
+        //     เฉพาะรายการ status 99 (รออัพเดต) / 100 (เสร็จ)
+        //     Status / ผู้รับผิดชอบ : มีทั้งเดิม/ใหม่ (snapshot ตอน AAD Confirm) — Location มีแค่ค่าใหม่
+        //     แยก try : ถ้าคอลัมน์ Old_/New_ ยังไม่ได้รัน SQL → ข้ามแหล่งนี้ ไม่ทำให้รายการอื่นหาย
+        private DataTable GetWithdrawRows(string where)
+        {
+            string str =
+                "SELECT CAST(W.tool_id AS nvarchar(50)) AS Tool_id, CAST(W.sub_id AS nvarchar(50)) AS Tool_sub," +
+                "       CAST(W.system_id AS nvarchar(10)) AS System_id," +
+                "       CAST(W.FixAsset AS nvarchar(100)) AS Fix_Asset_No, CAST(W.ControlNo AS nvarchar(100)) AS Control_No," +
+                "       CAST(B.tool_no AS nvarchar(200)) AS Tool_No," +
+                "       CAST(W.Use_Dept AS nvarchar(50)) AS New_DeptCode," +
+                "       CAST(CASE WHEN W.Old_Responsible IS NULL THEN NULL WHEN RO.pic_dept IS NULL OR RO.pic_dept = '' THEN W.Old_Responsible" +
+                "                 ELSE RO.pic_dept + ' (' + W.Old_Responsible + ')' END AS nvarchar(100)) AS Old_Responsible," +
+                "       CAST(CASE WHEN W.New_Responsible IS NULL THEN NULL WHEN RN.pic_dept IS NULL OR RN.pic_dept = '' THEN W.New_Responsible" +
+                "                 ELSE RN.pic_dept + ' (' + W.New_Responsible + ')' END AS nvarchar(100)) AS New_Responsible," +
+                "       CAST(CASE WHEN W.HD_Model   = 'txt' THEN W.New_Model   ELSE M.model_name      END AS nvarchar(200)) AS New_Model_Text," +
+                "       CAST(CASE WHEN W.HD_Cell    = 'txt' THEN W.New_Cell    ELSE L2.location2_name END AS nvarchar(200)) AS New_Cell_Text," +
+                "       CAST(CASE WHEN W.HD_Station = 'txt' THEN W.New_Station ELSE L3.location3_name END AS nvarchar(200)) AS New_Station_Text," +
+                "       SO.status_name AS Old_Status_Name, SN.status_name AS New_Status_Name," +
+                "       CAST(C.confirm_empid AS nvarchar(50)) AS Edit_By, ISNULL(C.confirm_date, C.update_date) AS Edit_Date," +
+                "       CAST(C.reason_remark AS nvarchar(500)) AS Remark," +
+                "       'WITHDRAW' AS Source, CAST(C.Doc_No AS nvarchar(50)) AS Doc_No, CAST(C.issue_empid AS nvarchar(50)) AS Issue_By" +
+                " FROM Withdraw_List W" +
+                " INNER JOIN Withdraw_Control_List C ON C.Doc_No = W.Doc_No" +
+                " LEFT JOIN Tool_Equipment_List_View B" +
+                "   ON W.tool_id = B.tool_id AND W.sub_id = B.sub_no AND W.system_id = B.sys_status" +
+                " LEFT JOIN jig_tool_system.dbo.draw_master_model M" +
+                "   ON CAST(M.model_id AS nvarchar(50)) = LTRIM(RTRIM(CAST(W.Use_Model_Id AS nvarchar(50))))" +
+                " LEFT JOIN jig_tool_system.dbo.master_location2 L2" +
+                "   ON CAST(L2.location2_id AS nvarchar(50)) = LTRIM(RTRIM(CAST(W.Use_Cell_Id AS nvarchar(50))))" +
+                " LEFT JOIN jig_tool_system.dbo.master_location3 L3" +
+                "   ON CAST(L3.location3_id AS nvarchar(50)) = LTRIM(RTRIM(CAST(W.Use_Station_Id AS nvarchar(50))))" +
+                " LEFT JOIN tool_equipment_status SO ON SO.status_id = W.Old_Status_Id" +
+                " LEFT JOIN tool_equipment_status SN ON SN.status_id = W.New_Status_Id" +
+                " OUTER APPLY (SELECT TOP 1 pic_dept FROM Responsible_Dept WHERE LTRIM(RTRIM(emp_id)) = LTRIM(RTRIM(W.Old_Responsible))) RO" +
+                " OUTER APPLY (SELECT TOP 1 pic_dept FROM Responsible_Dept WHERE LTRIM(RTRIM(emp_id)) = LTRIM(RTRIM(W.New_Responsible))) RN" +
+                " WHERE W.status_id IN (99, 100) " + where +
+                " ORDER BY Edit_Date DESC";
+            try
+            {
+                dc.QryDT(conn, str);
+                return dc.dt == null ? null : dc.dt.Copy();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[History CL : Withdraw] " + ex.Message);
+                return null;
+            }
+        }
+
         private bool IsChangeRow(DataRow r) { return GetColStr(r, "Source") == "CHANGE"; }
+        private bool IsWithdrawRow(DataRow r) { return GetColStr(r, "Source") == "WITHDRAW"; }
+
+        /// <summary>แถวที่มาจากเอกสาร (แจ้งเปลี่ยน / เบิก) : Location มีแค่ค่าใหม่</summary>
+        private bool IsDocRow(DataRow r) { return IsChangeRow(r) || IsWithdrawRow(r); }
+
+        private string DocTag(DataRow r)
+        {
+            return IsWithdrawRow(r)
+                ? "<span class='cl-tag cl-tag-wd'>📦 เบิก " + Enc(GetColStr(r, "Doc_No")) + "</span>"
+                : "<span class='cl-tag cl-tag-doc'>📄 แจ้งเปลี่ยน " + Enc(GetColStr(r, "Doc_No")) + "</span>";
+        }
 
         // =====================================================
         //  Filter Events (Tab 2 : History Change Location)
@@ -1159,14 +1239,14 @@ namespace Tool_Equipment_Control_System
             DataRow r = ToRow(dataItem);
             if (r == null) return "";
 
-            // แจ้งเปลี่ยนแปลง : ไม่มีค่าเดิม → แสดงเฉพาะค่าใหม่ + Doc No
-            if (IsChangeRow(r))
+            // แจ้งเปลี่ยน / เบิก : ไม่มีค่า Location เดิม → แสดงเฉพาะค่าใหม่ + Doc No
+            if (IsDocRow(r))
             {
                 string[] vals = new string[LocFields.Length];
                 for (int k = 0; k < LocFields.Length; k++) vals[k] = GetColStr(r, LocFields[k][2]);
 
                 return "<div class='cl-loc'>" +
-                       "<span class='cl-tag cl-tag-doc'>📄 แจ้งเปลี่ยน " + Enc(GetColStr(r, "Doc_No")) + "</span>" +
+                       DocTag(r) +
                        "<span class='cl-tag cl-tag-new'>ใหม่</span>" +
                        BuildPath(vals, null, "") +
                        "</div>";
@@ -1234,15 +1314,18 @@ namespace Tool_Equipment_Control_System
             var sb = new StringBuilder();
             int count = 0;
 
-            // แจ้งเปลี่ยนแปลง : แสดงค่าที่กำหนดใหม่ (ไม่มีค่าเดิมให้เทียบ)
-            if (IsChangeRow(r))
+            // แจ้งเปลี่ยน / เบิก : มีค่าเดิม → เดิม ➜ ใหม่ , ไม่มีค่าเดิม → ➜ ใหม่
+            //   (เบิก : Status / ผู้รับผิดชอบ มีค่าเดิมจาก snapshot ตอน AAD Confirm)
+            if (IsDocRow(r))
             {
                 foreach (string[] f in OtherFields)
                 {
+                    string o = GetColStr(r, f[1]);
                     string nw = GetColStr(r, f[2]);
-                    if (nw == "") continue;
+                    if (nw == "" || o == nw) continue;
                     count++;
                     sb.Append("<div class='cl-fd-row'><span class='cl-fd-k'>" + Enc(f[0]) + "</span><span class='cl-fd-v'>" +
+                              (o == "" ? "" : "<span class='cl-old'>" + Enc(o) + "</span>") +
                               "<span class='cl-arrow'>➜</span><span class='cl-new'>" + Enc(nw) + "</span></span></div>");
                 }
                 return count == 0 ? "<span class='cl-none'>— ไม่มีการเปลี่ยนแปลงอื่น —</span>" : "<div>" + sb.ToString() + "</div>";
@@ -1283,8 +1366,8 @@ namespace Tool_Equipment_Control_System
             string remark = GetColStr(r, "Remark");
             string note = remark == "" ? "" : "<div class='cl-note'>📝 " + Enc(remark) + "</div>";
 
-            if (IsChangeRow(r) && GetColStr(r, "Issue_By") != "")
-                note += "<div class='cl-note'>👤 แจ้งโดย " + Enc(GetColStr(r, "Issue_By")) + "</div>";
+            if (IsDocRow(r) && GetColStr(r, "Issue_By") != "")
+                note += "<div class='cl-note'>👤 " + (IsWithdrawRow(r) ? "เบิกโดย " : "แจ้งโดย ") + Enc(GetColStr(r, "Issue_By")) + "</div>";
 
             return note;
         }
@@ -1312,7 +1395,10 @@ namespace Tool_Equipment_Control_System
                 DataTable dtChange = GetChangeRequestRows(
                     " AND A.tool_id = '" + tid + "' AND A.sub_id = '" + tsub + "' AND A.system_id = '" + sys + "'");
 
-                dt_CLHist = MergeByEditDate(dtEdit, dtChange);
+                DataTable dtWithdraw = GetWithdrawRows(
+                    " AND W.tool_id = '" + tid + "' AND W.sub_id = '" + tsub + "' AND W.system_id = '" + sys + "'");
+
+                dt_CLHist = MergeByEditDate(MergeByEditDate(dtEdit, dtChange), dtWithdraw);
             }
             catch (Exception ex)
             {
@@ -1357,6 +1443,8 @@ namespace Tool_Equipment_Control_System
                     sb.Append("<span class='tl-dot " + (isLatest ? "" : "done") + "'></span>");
                     string who = IsChangeRow(r)
                         ? "แจ้งเปลี่ยน " + Enc(GetColStr(r, "Doc_No")) + " · Confirm โดย " + Enc(GetColStr(r, "Edit_By"))
+                        : IsWithdrawRow(r)
+                        ? "เบิก " + Enc(GetColStr(r, "Doc_No")) + " · Confirm โดย " + Enc(GetColStr(r, "Edit_By"))
                         : "แก้ไขโดย " + Enc(GetColStr(r, "Edit_By"));
 
                     sb.Append("<div class='tl-title'>ครั้งที่ " + seq + " · " + who +

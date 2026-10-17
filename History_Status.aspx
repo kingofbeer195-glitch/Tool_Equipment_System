@@ -687,6 +687,7 @@
         .cl-tag-new  { background:#e3f4e8; color:#16703d; }
         .cl-tag-same { background:#eef1f4; color:#66727f; }
         .cl-tag-doc  { background:#fff4e0; color:#a15c00; border:1px solid #f5c26b; margin-right:4px; }
+        .cl-tag-wd   { background:#fdecea; color:#a5342a; border:1px solid #efc2bc; margin-right:4px; }
 
         /* อุปกรณ์ FA / CT / TL */
         .cl-asset { font-size:12.5px; line-height:1.6; }
@@ -1081,6 +1082,7 @@
                                         <span class="cl-tag cl-tag-old">เดิม</span> ค่าก่อนแก้ไข
                                         <span class="cl-tag cl-tag-new">ใหม่</span> ค่าหลังแก้ไข
                                         <span class="cl-tag cl-tag-doc">📄 แจ้งเปลี่ยน</span> จากเอกสาร Change (AAD Confirm แล้ว)
+                                        <span class="cl-tag cl-tag-wd">📦 เบิก</span> จากเอกสารเบิก (Wait Update / Completed)
                                     </div>
                                 </div>
 

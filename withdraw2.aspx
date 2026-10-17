@@ -518,7 +518,9 @@
         /* Step 3 : Fix คอลัมน์แนว X ( # , Fix Asset , Control No , Tool No / Model , No )
            ค่า left คำนวณด้วย JS (fixStickyColumns) ตามความกว้างจริงของคอลัมน์ก่อนหน้า
            Remove / Detail / Pic ไม่ Fix → เลื่อนลอดใต้คอลัมน์ที่ Fix */
-        table.fx-table { border-collapse: separate; border-spacing: 0; }   /* collapse ทำให้เส้นขอบคอลัมน์อื่นทับคอลัมน์ที่ Fix */
+        /* GridView ใส่ style="border-collapse:collapse" แบบ inline → ต้อง !important
+           (collapse = เส้นขอบเป็นของตาราง ไม่ติดไปกับคอลัมน์ที่ Fix → เส้นขวาของ No เลื่อนหาย / มีขีดทับ) */
+        table.fx-table { border-collapse: separate !important; border-spacing: 0; }
         table.fx-table td.fx-col { position: sticky; z-index: 2; background-color: #ffffff; }
         table.fx-table th.fx-col { position: sticky; top: 0; z-index: 6; }     /* มุมซ้ายบน : อยู่เหนือทั้งแถวและคอลัมน์ */
         table.fx-table .fx-last { box-shadow: 4px 0 5px -3px rgba(0,0,0,.35); }   /* เงาขอบขวาของโซนที่ Fix */

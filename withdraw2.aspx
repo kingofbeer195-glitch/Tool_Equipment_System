@@ -511,6 +511,18 @@
         .hdr-current { background-color: #6c757d !important; color: #fff !important; font-weight: 700; text-align: center; padding: 4px; }
         .hdr-use { background-color: #27ae60 !important; color: #fff !important; font-weight: 700; text-align: center; padding: 4px; }
         .hdr-use.zone-divider { border-left: 4px solid #1a3a5c !important; }
+
+        /* Step 3 : เส้นแบ่งโซน — ขวาสุดของ Use (ปิดโซน) */
+        .zone-end { border-right: 4px solid #1a3a5c !important; }
+
+        /* Step 3 : Fix คอลัมน์แนว X ( # , Fix Asset , Control No , Tool No / Model , No )
+           ค่า left คำนวณด้วย JS (fixStickyColumns) ตามความกว้างจริงของคอลัมน์ก่อนหน้า
+           Remove / Detail / Pic ไม่ Fix → เลื่อนลอดใต้คอลัมน์ที่ Fix */
+        table.fx-table { border-collapse: separate; border-spacing: 0; }   /* collapse ทำให้เส้นขอบคอลัมน์อื่นทับคอลัมน์ที่ Fix */
+        table.fx-table td.fx-col { position: sticky; z-index: 2; background-color: #ffffff; }
+        table.fx-table th.fx-col { position: sticky; top: 0; z-index: 6; }     /* มุมซ้ายบน : อยู่เหนือทั้งแถวและคอลัมน์ */
+        table.fx-table .fx-last { box-shadow: 4px 0 5px -3px rgba(0,0,0,.35); }   /* เงาขอบขวาของโซนที่ Fix */
+        table.fx-table td.fx-toolno { max-width: 220px; white-space: normal; word-break: break-word; }
     </style>
 
     <%--READ ME + MANUAL--%>
@@ -718,6 +730,41 @@
             if (wrap.contains(e.target) || (btn && btn.contains(e.target))) return;
             wrap.classList.remove('show');
         });
+    </script>
+
+    <%--Step 3 : Fix คอลัมน์แนว X--%>
+    <script>
+        function fixStickyColumns() {
+            var tables = document.querySelectorAll('table.fx-table');
+            for (var t = 0; t < tables.length; t++) {
+                var tbl = tables[t];
+                if (!tbl.rows.length) continue;
+                var head = tbl.rows[0], n = head.cells.length, left = 0;
+                for (var i = 0; i < n; i++) {
+                    var hc = head.cells[i];
+                    if (!/(^|\s)fx-col(\s|$)/.test(hc.className)) continue;
+                    for (var r = 0; r < tbl.rows.length; r++) {
+                        var row = tbl.rows[r];
+                        if (row.cells.length !== n) continue;            // แถวว่าง / colspan
+                        row.cells[i].style.left = left + 'px';
+                    }
+                    left += hc.getBoundingClientRect().width;
+                }
+            }
+        }
+        (function () {
+            function run() { setTimeout(fixStickyColumns, 0); }
+            var hooked = false;
+            function hookAjax() {                                       // Sys มีหลัง ScriptManager โหลดแล้ว
+                if (hooked || !(window.Sys && Sys.WebForms && Sys.WebForms.PageRequestManager)) return;
+                Sys.WebForms.PageRequestManager.getInstance().add_endRequest(run);
+                hooked = true;
+            }
+            function init() { hookAjax(); run(); }
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+            window.addEventListener('load', init);
+            window.addEventListener('resize', run);
+        })();
     </script>
 
     <asp:ScriptManager runat="server" ID="scriptManager1" EnablePageMethods="true"></asp:ScriptManager>
@@ -1018,7 +1065,7 @@
                     <div class="card-body" style="margin-bottom:10px;">
                         <div class="tbl-wrap" style="max-height: 350px;">
                             <asp:GridView ID="gvBorrowList" runat="server"
-                                CssClass="data-table change-table fixed-header"
+                                CssClass="data-table change-table fixed-header fx-table"
                                 style="min-width:1800px;"
                                 AutoGenerateColumns="false"
                                 OnRowDataBound="gvBorrowList_RowDataBound"
@@ -1028,7 +1075,7 @@
                                 <Columns>
                                     <%--Item No--%>
                                     <asp:BoundField DataField="RowNo" HeaderText="#"
-                                        HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" ItemStyle-Width="40px" />
+                                        HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv1 fx-col" ItemStyle-Width="40px" />
 
                                     <%--Remove--%>
                                     <asp:TemplateField HeaderText="Remove" ItemStyle-Width="65px"
@@ -1068,25 +1115,25 @@
 
                                     <%--Fix Asset--%>
                                     <asp:BoundField DataField="FixAssetNo" ItemStyle-Width="110px"
-                                        HeaderText="Fix Asset" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
+                                        HeaderText="Fix Asset" HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv1 fx-col" />
 
                                     <%--Control No--%>
                                     <asp:BoundField DataField="ControlNo" ItemStyle-Width="120px"
-                                        HeaderText="Control No" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
+                                        HeaderText="Control No" HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv1 fx-col" />
 
                                     <%--Tool No--%>
                                     <asp:BoundField DataField="ToolNo"
-                                        HeaderText="Tool No / Model" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv_toolNo" />
+                                        HeaderText="Tool No / Model" HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv_toolNo fx-col fx-toolno" />
 
                                     <%--Sub--%>
                                     <asp:BoundField DataField="ToolSub" ItemStyle-Width="45px"
-                                        HeaderText="No" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />                                    
+                                        HeaderText="No" HeaderStyle-CssClass="headerGv1 fx-col fx-last" ItemStyle-CssClass="rowGv1 fx-col fx-last" />                                    
 
                                     <%--═══════════ โซน CURRENT (4 ช่อง, label อย่างเดียว) ═══════════--%>
 
                                     <%--Current Dept--%>
                                     <asp:BoundField DataField="DeptCode" ItemStyle-Width="100px" HeaderText="Current Dept"
-                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                        HeaderStyle-CssClass="hdr-current zone-divider" ItemStyle-CssClass="col-current zone-divider" />
 
                                     <%--Current Model--%>
                                     <asp:BoundField DataField="ModelName" ItemStyle-Width="120px" HeaderText="Current Model"
@@ -1148,7 +1195,7 @@
                                     </asp:TemplateField>
 
                                     <%--Use Station (dropdown)--%>
-                                    <asp:TemplateField HeaderText="Use : Station" HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use">
+                                    <asp:TemplateField HeaderText="Use : Station" HeaderStyle-CssClass="hdr-use zone-end" ItemStyle-CssClass="col-use zone-end">
                                         <ItemTemplate>
                                             <div class="d-flex align-items-center" style="min-width:210px;">
                                                 <asp:HiddenField ID="hfStationMode" runat="server" Value="ddl" />

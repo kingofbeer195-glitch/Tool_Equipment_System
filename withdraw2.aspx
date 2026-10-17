@@ -613,6 +613,13 @@
             border-radius:6px; font-size:12.5px; font-weight:700; color:#6b4d00;
         }
         table.wcf-table td.col-aad select.aad-ddl:focus { outline:none; box-shadow:0 0 0 3px rgba(255,193,7,.35); }
+        /* ข้อมูล Requester จาก Snapshot (Requester_Info) เมื่อไม่พบใน HRMS */
+        input.fld-snapshot { background:#fff4e0 !important; border-color:#f5c26b !important; color:#7a4f00 !important; }
+
+        /* Use : Dept (Real Dept) */
+        table.wcf-table .use-dept .ud-code { white-space:nowrap; }
+        table.wcf-table .use-dept small { color:#66727f; }
+
         /* หมายเหตุกฎ Auto Assign ใต้ Dropdown ผู้รับผิดชอบ */
         table.wcf-table .rule-note { margin-top:4px; font-size:11.5px; color:#66727f; white-space:normal; max-width:260px; }
         table.wcf-table .rule-note.hit { color:#7a4f00; background:#fff4e0; border:1px solid #f5c26b; border-radius:4px; padding:2px 6px; }
@@ -688,6 +695,19 @@
             var s = e.target;
             if (s && s.classList && s.classList.contains('aad-ddl'))
                 s.classList.toggle('aad-ddl-empty', !s.value);
+
+            // ผู้รับผิดชอบเปลี่ยน → Use : Dept แสดง (Real Dept) ของคนที่เลือก
+            if (s && s.getAttribute && s.getAttribute('data-real') !== null) {
+                var map = {};
+                try { map = JSON.parse(s.getAttribute('data-real') || '{}'); } catch (err) { }
+                var dept = s.getAttribute('data-dept') || '';
+                var real = map[s.value] || '';
+                var text = (!real) ? dept : (!dept ? real : (dept === real ? dept : dept + ' (' + real + ')'));
+                var tr = s.parentNode;
+                while (tr && tr.tagName !== 'TR') tr = tr.parentNode;
+                var code = tr ? tr.querySelector('.use-dept .ud-code') : null;
+                if (code) code.textContent = text;
+            }
         }, true);
 
         // คลิกที่อื่น → ปิดเมนู
@@ -1062,10 +1082,28 @@
                                     <asp:BoundField DataField="ToolSub" ItemStyle-Width="45px"
                                         HeaderText="No" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />                                    
 
+                                    <%--═══════════ โซน CURRENT (4 ช่อง, label อย่างเดียว) ═══════════--%>
+
+                                    <%--Current Dept--%>
+                                    <asp:BoundField DataField="DeptCode" ItemStyle-Width="100px" HeaderText="Current Dept"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--Current Model--%>
+                                    <asp:BoundField DataField="ModelName" ItemStyle-Width="120px" HeaderText="Current Model"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--Current Cell--%>
+                                    <asp:BoundField DataField="CellName" ItemStyle-Width="120px" HeaderText="Current Cell"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--Current Station--%>
+                                    <asp:BoundField DataField="StationName" ItemStyle-Width="120px" HeaderText="Current Station"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
                                     <%--═══════════ โซน USE (4 ช่อง) ═══════════--%>
 
-                                    <%--Use Dept (dropdown)--%>
-                                    <asp:TemplateField HeaderText="Use : Dept" HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use">
+                                    <%--Use Dept (dropdown) (เริ่มโซน → zone-divider)--%>
+                                    <asp:TemplateField HeaderText="Use : Dept" HeaderStyle-CssClass="hdr-use zone-divider" ItemStyle-CssClass="col-use zone-divider">
                                         <ItemTemplate>
                                             <div class="d-flex align-items-center" style="min-width:160px;">
                                                 <asp:DropDownList ID="ddlDept" runat="server"
@@ -1125,24 +1163,6 @@
                                             </div>
                                         </ItemTemplate>
                                     </asp:TemplateField>
-
-                                    <%--═══════════ โซน CURRENT (4 ช่อง, label อย่างเดียว) ═══════════--%>
-
-                                    <%--Current Dept (เริ่มโซน → zone-divider)--%>
-                                    <asp:BoundField DataField="DeptCode" ItemStyle-Width="100px" HeaderText="Current Dept"
-                                        HeaderStyle-CssClass="hdr-current zone-divider" ItemStyle-CssClass="col-current zone-divider" />
-
-                                    <%--Current Model--%>
-                                    <asp:BoundField DataField="ModelName" ItemStyle-Width="120px" HeaderText="Current Model"
-                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
-
-                                    <%--Current Cell--%>
-                                    <asp:BoundField DataField="CellName" ItemStyle-Width="120px" HeaderText="Current Cell"
-                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
-
-                                    <%--Current Station--%>
-                                    <asp:BoundField DataField="StationName" ItemStyle-Width="120px" HeaderText="Current Station"
-                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
                                 </Columns>
                             </asp:GridView>
                         </div>                        
@@ -1387,7 +1407,7 @@
                             </div>
                         </div>
 
-                        <div class="wcf-sec">สรุปรายการ <small>ปัจจุบัน → ปลายทาง</small></div>
+                        <div class="wcf-sec">Step 3 : Request List <small>(Current → Use)</small></div>
 
                         <div class="tbl-wrap" style="max-height:440px; overflow:auto;">
                             <asp:GridView ID="gvConfirmSummary" runat="server"
@@ -1417,27 +1437,35 @@
                                         </ItemTemplate>
                                     </asp:TemplateField>
 
-                                    <asp:BoundField DataField="NewDept" HeaderText="ปลายทาง : Dept"
-                                        HeaderStyle-CssClass="hdr-use zone-divider" ItemStyle-CssClass="col-use zone-divider" />
-                                    <asp:BoundField DataField="NewModel" HeaderText="ปลายทาง : Model"
-                                        HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use" />
-                                    <asp:BoundField DataField="NewCell" HeaderText="ปลายทาง : Cell"
-                                        HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use" />
-                                    <asp:BoundField DataField="NewStation" HeaderText="ปลายทาง : Station"
-                                        HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use" />
-
-                                    <asp:BoundField DataField="OldStatus" HeaderText="ปัจจุบัน : Status"
+                                    <%--═══ Current (เหมือน Step 3 : Request List) ═══--%>
+                                    <asp:BoundField DataField="OldStatus" HeaderText="Current Status"
                                         HeaderStyle-CssClass="hdr-current zone-divider" ItemStyle-CssClass="col-current zone-divider" />
-                                    <asp:BoundField DataField="OldResp" HeaderText="ปัจจุบัน : ผู้รับผิดชอบ"
+                                    <asp:BoundField DataField="OldResp" HeaderText="Current ผู้รับผิดชอบ"
                                         HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
-                                    <asp:BoundField DataField="OldDept" HeaderText="ปัจจุบัน : Dept"
+                                    <asp:BoundField DataField="OldDept" HeaderText="Current Dept"
                                         HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
-                                    <asp:BoundField DataField="OldModel" HeaderText="ปัจจุบัน : Model"
+                                    <asp:BoundField DataField="OldModel" HeaderText="Current Model"
                                         HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
-                                    <asp:BoundField DataField="OldCell" HeaderText="ปัจจุบัน : Cell"
+                                    <asp:BoundField DataField="OldCell" HeaderText="Current Cell"
                                         HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
-                                    <asp:BoundField DataField="OldStation" HeaderText="ปัจจุบัน : Station"
+                                    <asp:BoundField DataField="OldStation" HeaderText="Current Station"
                                         HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--═══ Use (เหมือน Step 3) : Dept แสดง (Real Dept) ของผู้รับผิดชอบที่เลือก ═══--%>
+                                    <asp:TemplateField HeaderText="Use : Dept"
+                                        HeaderStyle-CssClass="hdr-use zone-divider" ItemStyle-CssClass="col-use zone-divider">
+                                        <ItemTemplate>
+                                            <span class="use-dept" title="Use Dept (Real Dept ตามผู้รับผิดชอบ : Responsible_Dept.dept_code_real)">
+                                                <asp:Literal ID="litUseDept" runat="server" />
+                                            </span>
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
+                                    <asp:BoundField DataField="NewModel" HeaderText="Use : Model"
+                                        HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use" />
+                                    <asp:BoundField DataField="NewCell" HeaderText="Use : Cell"
+                                        HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use" />
+                                    <asp:BoundField DataField="NewStation" HeaderText="Use : Station"
+                                        HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use" />
                                 </Columns>
                             </asp:GridView>
                         </div>

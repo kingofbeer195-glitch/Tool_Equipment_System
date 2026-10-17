@@ -540,35 +540,153 @@
         #modal_UploadManual .modal-header { background:linear-gradient(135deg,#1a3a5c 0%,#f39c12 100%); border-bottom:none; }
         #modal_UploadManual .modal-title { color:#fff !important; }
         #modal_UploadManual .modal-body { background:#fff; max-height:none; padding:18px; }
+
+        /* เมนู Manual แยกกลุ่ม (เหมือน borrow_tool2) */
+        .manual-menu { min-width:210px; }
+        .manual-menu .manual-sep { height:1px; background:#edf0f4; margin:4px 0; }
+        .manual-menu .manual-grp { padding:6px 14px 2px; font-size:11px; color:#66727f; font-weight:700; }
+
+        /* แถบนำทาง Status 50 : AAD Confirm */
+        .mode-guide {
+            display:flex; align-items:center; flex-wrap:wrap; gap:10px 18px;
+            margin:0 10px 12px; padding:10px 16px; border-radius:8px;
+            background:#fdecea; border:1px solid #f1b8b1; border-left:6px solid #c0392b; color:#1a3a5c;
+        }
+        .mode-guide .mg-title { font-weight:700; }
+        .mode-guide ol { display:flex; flex-wrap:wrap; gap:4px 18px; margin:0; padding-left:18px; font-size:13px; }
+        .mode-guide .mg-btn {
+            margin-left:auto; display:inline-flex; align-items:center; gap:5px;
+            padding:5px 14px; border-radius:16px; background:#c0392b; color:#fff !important;
+            font-weight:600; font-size:13px; text-decoration:none !important;
+        }
+        .mode-guide .mg-btn:hover { background:#a93226; }
+    </style>
+
+    <%--AAD Confirm Modal (อ้างอิง NotificationOfChange)--%>
+    <style>
+        .wcf-overlay {
+            position:fixed; inset:0; z-index:10000;
+            background:rgba(20,30,42,.45);
+            align-items:center; justify-content:center;
+        }
+        .wcf-box {
+            display:flex; flex-direction:column;
+            width:95vw; max-height:90vh;
+            background:#fff; border-radius:12px; overflow:hidden;
+            box-shadow:0 20px 50px rgba(20,30,42,.3);
+        }
+        .wcf-head {
+            display:flex; align-items:center; justify-content:space-between; gap:12px;
+            padding:14px 20px; border-bottom:1px solid #edf0f4;
+            font-size:15px; font-weight:700; color:#1c2b3a;
+        }
+        .wcf-head .wcf-doc { color:#c0392b; }
+        .wcf-x {
+            width:32px; height:32px; border-radius:6px;
+            background:none; border:none; color:#66727f; font-size:24px; line-height:1; cursor:pointer;
+        }
+        .wcf-x:hover { background:#f3f5f8; color:#1c2b3a; }
+        .wcf-body { padding:16px 20px; overflow-y:auto; min-height:45vh; }
+        .wcf-foot { display:flex; justify-content:flex-end; gap:8px; padding:12px 20px; border-top:1px solid #edf0f4; }
+        .wcf-sec { display:flex; align-items:center; gap:8px; margin:0 0 8px; font-size:14px; font-weight:700; color:#1c2b3a; }
+        .wcf-sec small { font-size:12px; font-weight:400; color:#66727f; }
+        .wcf-summary { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; font-size:13px; }
+        .wcf-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 10px; border-radius:999px; font-size:11.5px; font-weight:700; border:1px solid transparent; }
+        .wcf-ok { background:#e3f4e8; color:#16703d; border-color:#b6e0c4; }
+        .wcf-notice {
+            margin-top:10px; padding:8px 12px; border-left:3px solid #d9822b; border-radius:6px;
+            background:#fdf3e7; color:#8a4b0c; font-size:13px;
+        }
+
+        /* โซนคอลัมน์ : AAD (เหลือง) / ปลายทาง (เขียว) / ปัจจุบัน (เทา) */
+        table.wcf-table thead th.hdr-aad, table.wcf-table th.hdr-aad { background:#c79100; color:#fff; }
+        table.wcf-table th.hdr-use     { background:#16884a; color:#fff; }
+        table.wcf-table th.hdr-current { background:#4a5b6d; color:#fff; }
+        table.wcf-table tbody td.col-aad, table.wcf-table td.col-aad { background:#f8eefb; }
+        table.wcf-table td.col-use     { background:#eef8f1; }
+        table.wcf-table td.col-current { background:#f3f5f8; color:#66727f; }
+        table.wcf-table .zone-divider  { border-left:3px solid #1a3a5c; }
+
+        table.wcf-table td.col-aad select.aad-ddl {
+            min-width:180px; height:30px; padding:2px 6px;
+            background:#fff3cd !important; border:2px solid #ffc107 !important;
+            border-radius:6px; font-size:12.5px; font-weight:700; color:#6b4d00;
+        }
+        table.wcf-table td.col-aad select.aad-ddl:focus { outline:none; box-shadow:0 0 0 3px rgba(255,193,7,.35); }
+        table.wcf-table td.col-aad select.aad-ddl-empty {
+            background:#fbeceb !important; border-color:#c93b3b !important; color:#a82f2f;
+        }
+
+        .cfm-warn {
+            display:flex; gap:12px; align-items:flex-start;
+            margin:0 0 12px; padding:12px 16px;
+            background:#fff7e0; border:1px solid #f1d98c; border-left:6px solid #d99a06;
+            border-radius:10px; font-size:13.5px; color:#5c4300;
+        }
+        .cfm-warn .cfm-warn-ico { font-size:22px; line-height:1; }
+        .cfm-warn b.cfm-warn-title { display:block; font-size:15px; color:#946200; margin-bottom:4px; }
+        .cfm-warn ul { margin:4px 0 0; padding-left:18px; }
+        .cfm-warn .cfm-chip {
+            display:inline-block; padding:0 8px; border-radius:4px;
+            background:#fff3cd; border:1px solid #ffc107; font-weight:700; color:#6b4d00;
+        }
     </style>
 
     <%--Manual open / menu--%>
     <script>
         // path ผ่าน Virtual Directory /ManualPath (& ต้อง encode = %26)
-        var MANUAL_URL = '/Tool_Equipment_Control_System/ManualPath/08_Tool%26Equipment/Withdraw/Withdraw_Manual.pdf';
+        // → \\cptfile02\Pro\PRJ2023008\50_Flow_Manual\01_Manual\08_Tool&Equipment\03_Withdraw
+        var MANUAL_BASE = '/Tool_Equipment_Control_System/ManualPath/08_Tool%26Equipment/03_Withdraw/';
+        var MANUAL_FILES = ['Step1', 'Step2', 'Step3', 'Step4', 'SaveDraft', 'SendRequest', 'CancelRequest', 'Confirm', 'Reject'];
 
-        function isManualAdmin() {
-            var hd = document.getElementById('<%= hdIsAdmin.ClientID %>');
-            return hd && hd.value === '99';
-        }
-        function openManual() {
-            window.open(MANUAL_URL, '_blank');
+        function openManualFile(name) {
+            if (MANUAL_FILES.indexOf(name) < 0) return false;          // whitelist
+            // ?v= กัน browser cache ไฟล์เก่าหลัง Upload ใหม่
+            window.open(MANUAL_BASE + name + '.pdf?v=' + new Date().getTime(), '_blank');
             hideManualMenu();
+            return false;                                               // กัน postback / href="#"
         }
         function hideManualMenu() {
             var m = document.getElementById('manualMenu');
             if (m) m.classList.remove('show');
         }
-        // กดปุ่ม Manual : admin → เปิดเมนู , user → เปิดไฟล์เลย
-        function manualClick() {
-            if (isManualAdmin()) {
-                var m = document.getElementById('manualMenu');
-                if (m) m.classList.toggle('show');
-            } else {
-                openManual();
-            }
-            return false;  // กัน postback
+        function manualClick(e) {
+            if (e) e.stopPropagation();
+            var m = document.getElementById('manualMenu');
+            if (m) m.classList.toggle('show');
+            return false;
         }
+        // ── Modal AAD Confirm ──
+        function closeConfirmModal() {
+            var m = document.getElementById('<%= pnlConfirmModal.ClientID %>');
+            if (m) m.style.display = 'none';
+        }
+        // เตือนให้ตรวจ Status Use / ผู้รับผิดชอบ ก่อนบันทึก
+        function cfmConfirm() {
+            var grid = document.getElementById('<%= gvConfirmSummary.ClientID %>');
+            var ddls = grid ? grid.querySelectorAll('select.aad-ddl:not([disabled])') : [];
+            var missing = 0;
+            for (var i = 0; i < ddls.length; i++) if (!ddls[i].value) missing++;
+
+            if (missing > 0) {
+                var msg = 'ยังมีช่อง Status Use / ผู้รับผิดชอบ ที่ไม่มีข้อมูล ' + missing + ' ช่อง (ขอบแดง)';
+                if (typeof showToast === 'function') showToast(msg, { title: 'ข้อมูลไม่ครบ', type: 'warn', duration: 8000 });
+                else alert(msg);
+                return false;
+            }
+            if (!confirm('⚠️ ยืนยัน AAD Confirm\n\nตรวจสอบ Status Use และ ผู้รับผิดชอบ ครบทุกรายการแล้วใช่หรือไม่?\n' +
+                'เมื่อยืนยันแล้วจะแก้ไขไม่ได้\n\nกด OK เพื่อดำเนินการต่อ')) return false;
+
+            document.getElementById('loadingOverlay').style.display = 'block';
+            return true;
+        }
+        // เปลี่ยนค่าแล้วเอาขอบแดงออกทันที
+        document.addEventListener('change', function (e) {
+            var s = e.target;
+            if (s && s.classList && s.classList.contains('aad-ddl'))
+                s.classList.toggle('aad-ddl-empty', !s.value);
+        }, true);
+
         // คลิกที่อื่น → ปิดเมนู
         document.addEventListener('click', function (e) {
             var wrap = document.getElementById('manualMenu');
@@ -613,22 +731,34 @@
                         style=" text-align: center; align-content: center; background: #fff; margin: 10px 10px; border-radius: 30px; font-weight: 600; color: #4f4b4b;">
                     </asp:Label>
 
-                    <%-- ช่องที่ 1 : Manual --%>
-                    <div></div>
-                 <%--   <div style="display:flex; align-items:center; justify-content:center; position:relative;">
-                        <a href="javascript:void(0);" class="manual-btn"
-                           onclick="manualClick(); return false;" title="Manual การใช้งาน">
+                    <%-- ช่องที่ 1 : Manual (เปิดได้ทุกไฟล์ / Admin มี Upload) --%>
+                    <div style="display:flex; align-items:center; justify-content:center; position:relative;">
+                        <a href="#" class="manual-btn" onclick="return manualClick(event);" title="คู่มือการใช้งาน">
                             <span class="glyphicon glyphicon-book"></span> Manual
                         </a>
+
                         <div id="manualMenu" class="manual-menu">
-                            <a href="javascript:void(0);" onclick="openManual();">
-                                <span class="glyphicon glyphicon-eye-open"></span> Open Manual
-                            </a>
-                            <a href="javascript:void(0);" onclick="$('#modal_UploadManual').modal('show'); hideManualMenu();">
-                                <span class="glyphicon glyphicon-upload"></span> Upload Manual
-                            </a>
+                            <div class="manual-grp">ผู้ร้องขอ</div>
+                            <a href="#" onclick="return openManualFile('Step1');"><span class="glyphicon glyphicon-user"></span> Step 1 : Requester</a>
+                            <a href="#" onclick="return openManualFile('Step2');"><span class="glyphicon glyphicon-search"></span> Step 2 : Search &amp; Add</a>
+                            <a href="#" onclick="return openManualFile('Step3');"><span class="glyphicon glyphicon-list-alt"></span> Step 3 : Request List</a>
+                            <a href="#" onclick="return openManualFile('Step4');"><span class="glyphicon glyphicon-comment"></span> Step 4 : Comment</a>
+                            <a href="#" onclick="return openManualFile('SaveDraft');"><span class="glyphicon glyphicon-pencil"></span> Save Draft</a>
+                            <a href="#" onclick="return openManualFile('SendRequest');"><span class="glyphicon glyphicon-send"></span> Send Request</a>
+                            <a href="#" onclick="return openManualFile('CancelRequest');"><span class="glyphicon glyphicon-remove-circle"></span> Cancel</a>
+                            <div class="manual-sep"></div>
+                            <div class="manual-grp">AAD</div>
+                            <a href="#" onclick="return openManualFile('Confirm');"><span class="glyphicon glyphicon-ok-sign"></span> AAD Confirm</a>
+                            <a href="#" onclick="return openManualFile('Reject');"><span class="glyphicon glyphicon-remove-sign"></span> Reject</a>
+
+                            <asp:PlaceHolder ID="phManualUpload" runat="server" Visible="false">
+                                <div class="manual-sep"></div>
+                                <a href="#" onclick="$('#modal_UploadManual').modal('show'); hideManualMenu(); return false;">
+                                    <span class="glyphicon glyphicon-upload"></span> Upload Manual
+                                </a>
+                            </asp:PlaceHolder>
                         </div>
-                    </div>--%>
+                    </div>
 
                     <%-- ช่องที่ 2 : Read Me --%>
                     <div style="display:flex; align-items:center; justify-content:start;">
@@ -638,6 +768,9 @@
 
                     <asp:HiddenField ID="hdIsAdmin" runat="server" Value="0" />
                 </div>
+
+                <%-- แถบนำทาง + ปุ่มคู่มือ (Status 50 = AAD Confirm) --%>
+                <asp:Literal ID="litModeGuide" runat="server" Visible="false" />
 
                 <%--=====================================================--%>
                 <%------------ SECTION 1 : Employee ID (Issue By) ---------%>
@@ -1174,9 +1307,10 @@
                         <%-- Confirm Button --%>
                         <div id="ConfirmButton" runat="server" Visible="false">
                             <span class="tooltip-wrap" style="">
-                                <asp:LinkButton ID="btnConfirm" runat="server" 
+                                <%-- เปิด Modal ยืนยัน Status Use / ผู้รับผิดชอบ (ยืนยันจริงใน Modal) --%>
+                                <asp:LinkButton ID="btnConfirm" runat="server"
                                     CssClass="btn btn-success" OnClick="btnConfirm_Click"
-                                    OnClientClick="return AADConfirm();" data-toggle="tooltip" data-placement="top"
+                                    data-toggle="tooltip" data-placement="top"
                                     title="ยืนยันการร้องขอ">                                                                        
                                     <span class="glyphicon glyphicon-ok-sign"></span>
                                         AAD Confirm
@@ -1221,6 +1355,104 @@
                 </div>
             </div>
 
+            <%-- ===== Modal : ยืนยัน AAD Confirm (Status 50) — อ้างอิง NotificationOfChange ===== --%>
+            <asp:Panel ID="pnlConfirmModal" runat="server" CssClass="wcf-overlay" Style="display:none;">
+                <div class="wcf-box">
+                    <div class="wcf-head">
+                        <span>ยืนยัน AAD Confirm <span class="wcf-doc"><asp:Literal ID="litCfmDoc" runat="server" /></span></span>
+                        <span style="display:inline-flex; align-items:center; gap:8px; margin-left:auto;">
+                            <a href="#" class="manual-btn" style="border:1px solid #c0392b;" title="คู่มือ AAD Confirm"
+                               onclick="return openManualFile('Confirm');">
+                                <span class="glyphicon glyphicon-book"></span> คู่มือ
+                            </a>
+                            <button type="button" class="wcf-x" onclick="closeConfirmModal();" aria-label="ปิด">&times;</button>
+                        </span>
+                    </div>
+
+                    <div class="wcf-body">
+                        <asp:Literal ID="litCfmSummary" runat="server" />
+
+                        <div class="cfm-warn">
+                            <span class="cfm-warn-ico">⚠️</span>
+                            <div>
+                                <b class="cfm-warn-title">กรุณาตรวจสอบ Status Use และ ผู้รับผิดชอบ ทุกรายการก่อนกดยืนยัน</b>
+                                ช่อง <span class="cfm-chip">สีเหลือง</span> คือข้อมูลที่จะถูกบันทึกและใช้อัปเดตอุปกรณ์ — ระบบเลือกค่าเริ่มต้นให้แล้ว แต่ต้องตรวจให้ถูกต้อง
+                                <ul>
+                                    <li>ช่อง <b style="color:#a82f2f;">ขอบแดง</b> = ยังไม่มีข้อมูล ต้องแก้ก่อนยืนยัน</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="wcf-sec">สรุปรายการ <small>ปัจจุบัน → ปลายทาง</small></div>
+
+                        <div class="tbl-wrap" style="max-height:440px; overflow:auto;">
+                            <asp:GridView ID="gvConfirmSummary" runat="server"
+                                CssClass="data-table wcf-table" GridLines="None" CellSpacing="0"
+                                style="min-width:1900px;" AutoGenerateColumns="false"
+                                OnRowDataBound="gvConfirmSummary_RowDataBound" EmptyDataText="ไม่มีรายการ"
+                                UseAccessibleHeader="true">
+                                <Columns>
+                                    <asp:BoundField DataField="RowNo" HeaderText="#" ItemStyle-Width="35px" />
+                                    <asp:BoundField DataField="FixAssetNo" HeaderText="Fix Asset" ItemStyle-Width="100px" />
+                                    <asp:BoundField DataField="ControlNo" HeaderText="Control No" ItemStyle-Width="110px" />
+                                    <asp:BoundField DataField="ToolNo" HeaderText="Tool No" />
+
+                                    <%--═══ AAD : เลือก Status Use / ผู้รับผิดชอบ ═══--%>
+                                    <asp:TemplateField HeaderText="Status Use *"
+                                        HeaderStyle-CssClass="hdr-aad zone-divider" ItemStyle-CssClass="col-aad zone-divider">
+                                        <ItemTemplate>
+                                            <asp:HiddenField ID="hfCfmKey" runat="server" Value='<%# Eval("RowKey") %>' />
+                                            <asp:DropDownList ID="ddlStatusUse" runat="server" CssClass="form-control aad-ddl" />
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
+                                    <asp:TemplateField HeaderText="ผู้รับผิดชอบ *"
+                                        HeaderStyle-CssClass="hdr-aad" ItemStyle-CssClass="col-aad">
+                                        <ItemTemplate>
+                                            <asp:DropDownList ID="ddlResponsible" runat="server" CssClass="form-control aad-ddl" />
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
+
+                                    <asp:BoundField DataField="NewDept" HeaderText="ปลายทาง : Dept"
+                                        HeaderStyle-CssClass="hdr-use zone-divider" ItemStyle-CssClass="col-use zone-divider" />
+                                    <asp:BoundField DataField="NewModel" HeaderText="ปลายทาง : Model"
+                                        HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use" />
+                                    <asp:BoundField DataField="NewCell" HeaderText="ปลายทาง : Cell"
+                                        HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use" />
+                                    <asp:BoundField DataField="NewStation" HeaderText="ปลายทาง : Station"
+                                        HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use" />
+
+                                    <asp:BoundField DataField="OldStatus" HeaderText="ปัจจุบัน : Status"
+                                        HeaderStyle-CssClass="hdr-current zone-divider" ItemStyle-CssClass="col-current zone-divider" />
+                                    <asp:BoundField DataField="OldResp" HeaderText="ปัจจุบัน : ผู้รับผิดชอบ"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldDept" HeaderText="ปัจจุบัน : Dept"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldModel" HeaderText="ปัจจุบัน : Model"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldCell" HeaderText="ปัจจุบัน : Cell"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldStation" HeaderText="ปัจจุบัน : Station"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                </Columns>
+                            </asp:GridView>
+                        </div>
+
+                        <div class="wcf-notice">
+                            เมื่อยืนยัน เอกสารจะเปลี่ยนเป็น <b>Wait Update</b> และบันทึก Status / ผู้รับผิดชอบ (เดิม → ใหม่) ของทุกรายการ
+                        </div>
+                    </div>
+
+                    <div class="wcf-foot">
+                        <asp:LinkButton ID="btnConfirmModalCancel" runat="server" CssClass="btn btn-secondary"
+                            OnClientClick="closeConfirmModal(); return false;" Text="ยกเลิก" />
+                        <asp:LinkButton ID="btnConfirmModalOk" runat="server" CssClass="btn btn-success"
+                            OnClick="btnConfirmModalOk_Click" OnClientClick="return cfmConfirm();">
+                            <span class="glyphicon glyphicon-ok-sign"></span> ยืนยัน AAD Confirm
+                        </asp:LinkButton>
+                    </div>
+                </div>
+            </asp:Panel>
+
             <%-- Modal Read me --%>
             <div class="modal fade" id="modal_ReadMe" tabindex="-1" role="dialog">
                 <div class="modal-dialog" role="document">
@@ -1260,7 +1492,7 @@
                             <div class="rm-item">
                                 <div class="rm-ico"><span class="glyphicon glyphicon-book"></span></div>
                                 <div class="rm-txt"><strong>Manual</strong>
-                                    <span>กดปุ่ม Manual เพื่อเปิดคู่มือการใช้งาน (PDF)</span></div>
+                                    <span>กดปุ่ม Manual มุมขวาบน แล้วเลือกหัวข้อ (Step 1–4 / Save Draft / Send / Cancel / AAD Confirm / Reject) เพื่อเปิดคู่มือ (PDF)</span></div>
                             </div>
                         </div>
                     </div>
@@ -1279,8 +1511,20 @@
                         </div>
                         <div class="modal-body">
                             <p style="font-size:12px; color:#666; margin-bottom:10px;">
-                                เลือกไฟล์ PDF เพื่ออัปโหลด <b>ไฟล์เดิมจะถูกแทนที่</b> (Withdraw_Manual.pdf)
+                                เลือกคู่มือที่ต้องการแทนที่ แล้วเลือกไฟล์ PDF — <b>ไฟล์เดิมจะถูกแทนที่</b>
                             </p>
+                            <asp:DropDownList ID="ddlManualFile" runat="server" CssClass="form-control"
+                                Style="height:auto !important; padding:6px; margin-bottom:8px;">
+                                <asp:ListItem Value="Step1" Text="Step 1 : Requester (Step1.pdf)" />
+                                <asp:ListItem Value="Step2" Text="Step 2 : Search &amp; Add (Step2.pdf)" />
+                                <asp:ListItem Value="Step3" Text="Step 3 : Request List (Step3.pdf)" />
+                                <asp:ListItem Value="Step4" Text="Step 4 : Comment (Step4.pdf)" />
+                                <asp:ListItem Value="SaveDraft" Text="Save Draft (SaveDraft.pdf)" />
+                                <asp:ListItem Value="SendRequest" Text="Send Request (SendRequest.pdf)" />
+                                <asp:ListItem Value="CancelRequest" Text="Cancel (CancelRequest.pdf)" />
+                                <asp:ListItem Value="Confirm" Text="AAD Confirm (Confirm.pdf)" />
+                                <asp:ListItem Value="Reject" Text="Reject (Reject.pdf)" />
+                            </asp:DropDownList>
                             <asp:FileUpload ID="fuManual" runat="server" accept="application/pdf"
                                 CssClass="form-control" Style="height:auto !important; padding:6px;" />
                         </div>

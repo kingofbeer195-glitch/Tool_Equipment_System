@@ -28,7 +28,11 @@ CREATE TABLE [dbo].[Withdraw_List](
 	[New_Station] [nvarchar](50) NULL,
 	[HD_Station] [nvarchar](10) NULL,
 	[status_id] [int] NULL,
-	[update_date] [datetime] NULL
+	[update_date] [datetime] NULL,
+	[Old_Status_Id] [int] NULL,
+	[New_Status_Id] [int] NULL,
+	[Old_Responsible] [nvarchar](50) NULL,
+	[New_Responsible] [nvarchar](50) NULL
 ) ON [PRIMARY]
 GO
 

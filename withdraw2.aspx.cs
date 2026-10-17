@@ -37,6 +37,9 @@ namespace Tool_Equipment_Control_System
         private const string STATUS_USE = "1";      // tool_equipment_status : Use
         private const string STATUS_SPARE = "2";    // tool_equipment_status : Spare
 
+        // ── Requester_Info : Doc_Type ของหน้าเบิก ──
+        private const string DOC_TYPE = "AAD3";
+
         protected DataTable BorrowListDT
         {
             get
@@ -360,6 +363,7 @@ namespace Tool_Equipment_Control_System
                 hdtxtEmail.Value = u.EMAIL;
 
                 txtEmpId.Style["background-color"] = "#d4edda";
+                ViewState["REQ_SOURCE"] = "HRMS";       // ✅ ข้อมูลมาจาก HRMS → บันทึก Snapshot ได้
                 return true;
             }
         }
@@ -489,7 +493,27 @@ namespace Tool_Equipment_Control_System
                    ? dc.dt.Rows[0]["phone"].ToString()
                    : "";
 
-            GetDataHRMS_CSharp(emp_id);
+            // ══ 1) HRMS ก่อน ══
+            bool fromHrms = false;
+            try { fromHrms = GetDataHRMS_CSharp(emp_id.Trim()); }
+            catch (Exception exHrms) { System.Diagnostics.Debug.WriteLine("[HRMS] " + exHrms.Message); }
+
+            if (fromHrms)
+            {
+                SaveRequesterInfo_IfMissing(Doc_No, phone);   // เอกสารเก่าที่ยังไม่มี Snapshot → เก็บไว้เลย
+            }
+            else
+            {
+                // ══ 2) ไม่เจอใน HRMS (ลาออก / ย้าย) → อ่านจาก Requester_Info ══
+                DateTime? savedAt;
+                if (LoadRequesterSnapshot(Doc_No, out savedAt))
+                    alert_toast("ไม่พบรหัส " + emp_id.Trim() + " ใน HRMS — แสดงข้อมูลผู้ร้องขอที่บันทึกไว้" +
+                                (savedAt.HasValue ? " ณ " + savedAt.Value.ToString("dd-MMM-yyyy HH:mm") : ""),
+                                "ข้อมูลผู้ร้องขอ (Snapshot)", "info", "8000");
+                else
+                    alert_toast("ไม่พบรหัส " + emp_id.Trim() + " ใน HRMS และไม่มีข้อมูลที่บันทึกไว้",
+                                "ไม่พบข้อมูลผู้ร้องขอ", "warn", "8000");
+            }
             txtEmpId.Text = emp_id;
             txtTel.Text = phone;
             txtIssueDate.Text = issue_date.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
@@ -2201,6 +2225,9 @@ namespace Tool_Equipment_Control_System
                     conn.Close();
                 }
 
+                // ✅ อัปเดตข้อมูล Requester ณ วันที่บันทึก/ส่ง
+                SaveRequesterInfo_Safe(Doc_No, true, phone);
+
                 Sync_BorrowList(Doc_No, status_id);  // Insert / Update / Delete
             }
 
@@ -2262,6 +2289,9 @@ namespace Tool_Equipment_Control_System
 
                             // 3) INSERT รายการ Withdraw_List ทั้งหมด (ใน tx เดียวกัน)
                             InsertWithdrawRows_Tx(c, tx, dt, Doc_No, status_id);
+
+                            // 3.1) ✅ เก็บข้อมูล Requester (ใน tx เดียวกัน)
+                            SaveRequesterInfo(c, tx, Doc_No, true, txtTel.Text.Trim());
 
                             // 4) ทุกอย่างผ่าน → commit
                             tx.Commit();
@@ -2807,7 +2837,7 @@ namespace Tool_Equipment_Control_System
         {
             if (_respM != null) return _respM;
             dc.QryDT_P(conn,
-                "SELECT dept_code, pic_dept, emp_id FROM Responsible_Dept" +
+                "SELECT dept_code, pic_dept, emp_id, dept_code_real FROM Responsible_Dept" +
                 " WHERE emp_id IS NOT NULL AND LTRIM(RTRIM(emp_id)) <> ''" +
                 " ORDER BY dept_code, emp_id");
             _respM = dc.dt.Copy();
@@ -2830,6 +2860,32 @@ namespace Tool_Equipment_Control_System
             string name = m["pic_dept"] == DBNull.Value ? "" : m["pic_dept"].ToString().Trim();
             string id = m["emp_id"].ToString().Trim();
             return name == "" ? id : name + " (" + id + ")";
+        }
+
+        /// <summary>Real Dept ของผู้รับผิดชอบ (Responsible_Dept.dept_code_real)
+        ///          คนเดียวอยู่หลาย Dept → ใช้แถวของ Use Dept ก่อน ไม่มีค่อยใช้แถวแรก</summary>
+        private string RealDeptOf(string empId, string useDept)
+        {
+            empId = (empId ?? "").Trim(); useDept = (useDept ?? "").Trim();
+            if (empId == "") return "";
+            string first = null;
+            foreach (DataRow m in GetResponsibleMaster().Rows)
+            {
+                if (m["emp_id"].ToString().Trim() != empId) continue;
+                string real = m["dept_code_real"] == DBNull.Value ? "" : m["dept_code_real"].ToString().Trim();
+                if (m["dept_code"] != DBNull.Value && m["dept_code"].ToString().Trim() == useDept) return real;
+                if (first == null) first = real;
+            }
+            return first ?? "";
+        }
+
+        /// <summary>แสดง Dept : ถ้า dept_code != dept_code_real → "5505 (5330)" (รูปแบบเดียวกับ NotificationOfChange)</summary>
+        private static string FormatDeptDisplay(string deptCode, string real)
+        {
+            deptCode = (deptCode ?? "").Trim(); real = (real ?? "").Trim();
+            if (real == "") return deptCode;
+            if (deptCode == "") return real;
+            return string.Equals(deptCode, real, StringComparison.OrdinalIgnoreCase) ? deptCode : deptCode + " (" + real + ")";
         }
 
         /// <summary>AAD Confirm ได้เฉพาะ mode=confirm และ status 50</summary>
@@ -3079,6 +3135,28 @@ namespace Tool_Equipment_Control_System
                     note.Text = "<div class='rule-note'>ไม่ตรงกฎ Auto Assign — ใช้รายชื่อตาม Dept</div>";
             }
 
+            // ── Use : Dept = "Use Dept (Real Dept ของผู้รับผิดชอบที่เลือก)" + เปลี่ยนตามเมื่อเลือกคนใหม่ (JS) ──
+            string useDept = Convert.ToString(drv["UseDept"]);
+            var realMap = new StringBuilder("{");
+            foreach (ListItem li in ddlRp.Items)
+            {
+                if (li.Value == "") continue;
+                if (realMap.Length > 1) realMap.Append(",");
+                realMap.Append("\"" + HttpUtility.JavaScriptStringEncode(li.Value) + "\":\"" +
+                               HttpUtility.JavaScriptStringEncode(RealDeptOf(li.Value, useDept)) + "\"");
+            }
+            realMap.Append("}");
+            ddlRp.Attributes["data-real"] = realMap.ToString();
+            ddlRp.Attributes["data-dept"] = useDept;
+
+            var litUse = e.Row.FindControl("litUseDept") as Literal;
+            if (litUse != null)
+            {
+                string deptName = ResolveName((DataTable)ViewState["DEPT_MASTER"], "dept_code", "dept_name2", useDept);
+                litUse.Text = "<b class='ud-code'>" + Server.HtmlEncode(FormatDeptDisplay(useDept, RealDeptOf(ddlRp.SelectedValue, useDept))) + "</b>" +
+                              (deptName == "" ? "" : "<br/><small>" + Server.HtmlEncode(deptName) + "</small>");
+            }
+
             // ช่องที่ต้องตรวจ = สีเหลือง / ยังไม่มีค่า = ขอบแดง
             ddlSt.CssClass = "form-control aad-ddl" + (ddlSt.SelectedValue == "" ? " aad-ddl-empty" : "");
             ddlRp.CssClass = "form-control aad-ddl" + (ddlRp.SelectedValue == "" ? " aad-ddl-empty" : "");
@@ -3184,6 +3262,121 @@ namespace Tool_Equipment_Control_System
                       "<span class='glyphicon glyphicon-book'></span> " + Server.HtmlEncode(btnText) + "</a>");
             sb.Append("</div>");
             return sb.ToString();
+        }
+
+        #endregion
+
+        #region --- Requester Snapshot (Requester_Info) — รูปแบบเดียวกับ borrow_tool2 ---
+
+        private static string Cut(string s, int max)
+        {
+            s = (s ?? "").Trim();
+            return s.Length > max ? s.Substring(0, max) : s;
+        }
+
+        private static object DbStr(string s, int max)
+        {
+            string v = Cut(s, max);
+            return v == "" ? (object)DBNull.Value : v;
+        }
+
+        /// <summary>
+        /// บันทึกข้อมูล Requester ลง Requester_Info (ใช้ connection / transaction ที่ส่งมา — tx = null ได้)
+        ///   overwrite = true  : Save Draft / Send / Confirm → เขียนทับ (ข้อมูล ณ วันที่ส่งล่าสุด)
+        ///   overwrite = false : เปิดเอกสารเก่า → เพิ่มเฉพาะที่ยังไม่มี หรือแถว BACKFILL
+        /// ข้ามเมื่อข้อมูลบนหน้าจอไม่ได้มาจาก HRMS (กันเขียนทับด้วย Snapshot เอง)
+        /// </summary>
+        private void SaveRequesterInfo(SqlConnection c, SqlTransaction tx, string Doc_No, bool overwrite, string tel)
+        {
+            string empId = txtEmpId.Text.Trim();
+            if (string.IsNullOrEmpty(Doc_No) || Doc_No == "-") return;
+            if (empId == "" || txtEmpName.Text.Trim() == "") return;
+            if (Convert.ToString(ViewState["REQ_SOURCE"]) != "HRMS") return;
+
+            const string sql = @"
+                UPDATE dbo.Requester_Info
+                   SET emp_id = @emp, emp_name = @name, position_name = @pos, band = @band,
+                       dept_code = @dc, dept_name = @dn, email = @mail, tel = @tel,
+                       source = 'HRMS', update_date = GETDATE()
+                 WHERE Doc_No = @doc AND (@ow = 1 OR source = 'BACKFILL');
+
+                IF NOT EXISTS (SELECT 1 FROM dbo.Requester_Info WHERE Doc_No = @doc)
+                    INSERT INTO dbo.Requester_Info
+                          (Doc_No, Doc_Type, emp_id, emp_name, position_name, band,
+                           dept_code, dept_name, email, tel, source, create_date)
+                    VALUES (@doc, @type, @emp, @name, @pos, @band,
+                           @dc, @dn, @mail, @tel, 'HRMS', GETDATE());";
+
+            using (var cmd = new SqlCommand(sql, c, tx))
+            {
+                cmd.Parameters.Add("@doc", SqlDbType.NVarChar, 30).Value = Doc_No;
+                cmd.Parameters.Add("@type", SqlDbType.NVarChar, 10).Value = DOC_TYPE;
+                cmd.Parameters.Add("@emp", SqlDbType.NVarChar, 10).Value = Cut(empId, 10);
+                cmd.Parameters.Add("@name", SqlDbType.NVarChar, 150).Value = DbStr(txtEmpName.Text, 150);
+                cmd.Parameters.Add("@pos", SqlDbType.NVarChar, 150).Value = DbStr(txtPosition.Text, 150);
+                cmd.Parameters.Add("@band", SqlDbType.NVarChar, 20).Value = DbStr(hdtxtBand.Value, 20);
+                cmd.Parameters.Add("@dc", SqlDbType.NVarChar, 10).Value = DbStr(txtDeptCode.Text, 10);
+                cmd.Parameters.Add("@dn", SqlDbType.NVarChar, 100).Value = DbStr(txtDept.Text, 100);
+                cmd.Parameters.Add("@mail", SqlDbType.NVarChar, 150).Value = DbStr(hdtxtEmail.Value, 150);
+                cmd.Parameters.Add("@tel", SqlDbType.NVarChar, 50).Value = DbStr(tel ?? txtTel.Text, 50);
+                cmd.Parameters.Add("@ow", SqlDbType.Bit).Value = overwrite;
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        /// <summary>บันทึกแบบแยก connection — ถ้าพังไม่ให้กระทบการบันทึกเอกสาร</summary>
+        private void SaveRequesterInfo_Safe(string Doc_No, bool overwrite, string tel)
+        {
+            try
+            {
+                using (var c = new SqlConnection(ConfigurationManager.ConnectionStrings["tool_equipment"].ConnectionString))
+                {
+                    c.Open();
+                    SaveRequesterInfo(c, null, Doc_No, overwrite, tel);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Requester_Info] " + Doc_No + " : " + ex.Message);
+            }
+        }
+
+        /// <summary>เปิดเอกสารเก่า + เจอใน HRMS → เติม Snapshot ถ้ายังไม่มี</summary>
+        private void SaveRequesterInfo_IfMissing(string Doc_No, string tel)
+        {
+            SaveRequesterInfo_Safe(Doc_No, false, tel);
+        }
+
+        /// <summary>อ่าน Snapshot ลงหน้าจอ — คืน true ถ้าพบ</summary>
+        private bool LoadRequesterSnapshot(string Doc_No, out DateTime? savedAt)
+        {
+            savedAt = null;
+
+            dc.QryDT_P(conn,
+                "SELECT emp_name, position_name, band, dept_code, dept_name, email, source," +
+                "       ISNULL(update_date, create_date) AS saved_at" +
+                " FROM Requester_Info WHERE Doc_No = @d",
+                new SqlParameter("@d", SqlDbType.NVarChar) { Value = Doc_No });
+
+            if (dc.dt == null || dc.dt.Rows.Count == 0) return false;
+
+            DataRow r = dc.dt.Rows[0];
+            txtEmpName.Text = GetVal(r, "emp_name");
+            txtPosition.Text = GetVal(r, "position_name");
+            txtDept.Text = GetVal(r, "dept_name");
+            txtDeptCode.Text = GetVal(r, "dept_code");
+            hdtxtBand.Value = GetVal(r, "band");
+            hdtxtEmail.Value = GetVal(r, "email");
+            if (r["saved_at"] != DBNull.Value) savedAt = Convert.ToDateTime(r["saved_at"]);
+
+            ViewState["REQ_SOURCE"] = "SNAPSHOT";
+            ViewState["REQ_SNAP_TYPE"] = GetVal(r, "source");   // HRMS / BACKFILL
+
+            // ช่องที่มาจาก Snapshot → สีอำพัน
+            foreach (TextBox t in new[] { txtEmpName, txtPosition, txtDept, txtDeptCode })
+                if (!t.CssClass.Contains("fld-snapshot")) t.CssClass = (t.CssClass + " fld-snapshot").Trim();
+
+            return true;
         }
 
         #endregion

@@ -804,13 +804,43 @@ namespace Tool_Equipment_Control_System
                 return;
             }
 
+            ViewState["CFM_FLOW"] = "status50";
             BuildConfirmSummary();
             ReopenConfirmModal();
+        }
+
+        /// <summary>Admin สร้างเอกสารแล้ว AAD Confirm ทันที (ConfirmButton2 → status 99)</summary>
+        private bool IsDirectConfirmAllowed()
+        {
+            string admin = Session["admin"] != null ? Session["admin"].ToString().Trim() : "";
+            return admin == "99";
         }
 
         /// <summary>ยืนยันจาก Modal — ตรวจ Dropdown / บันทึก Status Use + ผู้รับผิดชอบ (เดิม/ใหม่) รายแถว + Header 99</summary>
         protected void btnConfirmModalOk_Click(object sender, EventArgs e)
         {
+            string flow = Convert.ToString(ViewState["CFM_FLOW"]);
+
+            // ════ ทางที่ 1 : Admin สร้างเอกสาร + AAD Confirm ทันที (ConfirmButton2) ════
+            if (flow == "direct")
+            {
+                if (!IsDirectConfirmAllowed())
+                {
+                    alert_toast("ไม่มีสิทธิ์ AAD Confirm", "Permission Denied", "error", "5000");
+                    return;
+                }
+                if (!ReadAndValidateConfirmModal())
+                {
+                    ReopenConfirmModal();
+                    return;
+                }
+
+                // INSERT เอกสาร status 99 — InsertWithdrawRows_Tx เก็บ Old/New Status + ผู้รับผิดชอบ
+                saveData("99");
+                return;
+            }
+
+            // ════ ทางที่ 2 : Status 50 → AAD Confirm (ConfirmButton) ════
             if (!IsAadEditable())
             {
                 alert_toast("AAD Confirm ได้เฉพาะเอกสารสถานะรอ AAD Confirm (โหมด Confirm)", "ไม่สามารถยืนยันได้", "warn", "10000");
@@ -969,8 +999,10 @@ namespace Tool_Equipment_Control_System
             }
             #endregion
 
-            // -- Accept to Save Data
-            saveData(status_id);
+            // -- ผ่านการตรวจ → เปิด Modal ยืนยัน Status Use / ผู้รับผิดชอบ (บันทึกจริงใน btnConfirmModalOk_Click)
+            ViewState["CFM_FLOW"] = "direct";
+            BuildConfirmSummary();
+            ReopenConfirmModal();
         }
         protected void btnReject_Click(object sender, EventArgs e)
         {
@@ -2360,15 +2392,24 @@ namespace Tool_Equipment_Control_System
                   Use_Model_Id , New_Model , HD_Model ,
                   Use_Cell_Id , New_Cell , HD_Cell ,
                   Use_Station_Id , New_Station , HD_Station ,
-                  status_id , update_date )
-                VALUES
-                ( @Doc_No , @No , @FixAsset , @ControlNo ,
+                  status_id , update_date ,
+                  Old_Status_Id , New_Status_Id , Old_Responsible , New_Responsible )
+                SELECT
+                  @Doc_No , @No , @FixAsset , @ControlNo ,
                   @tool_id , @sub_id , @system_id ,
                   @Use_Dept ,
                   @Use_Model_Id , @New_Model , @HD_Model ,
                   @Use_Cell_Id , @New_Cell , @HD_Cell ,
                   @Use_Station_Id , @New_Station , @HD_Station ,
-                  @status_id , @update_date )";
+                  @status_id , @update_date ,
+                  -- AAD Confirm (99) : Old = snapshot ปัจจุบันของอุปกรณ์ , New = ค่าที่เลือกใน Modal
+                  CASE WHEN @status_id = 99 THEN V.status_id END ,
+                  @New_Status_Id ,
+                  CASE WHEN @status_id = 99 THEN CAST(V.rsp_empID AS nvarchar(50)) END ,
+                  @New_Responsible
+                FROM (SELECT 1 AS x) D
+                OUTER APPLY (SELECT TOP 1 status_id , rsp_empID FROM Tool_Equipment_List_View
+                             WHERE tool_id = @tool_id AND sub_no = @sub_id AND sys_status = @system_id) V";
 
             foreach (DataRow row in dt.Rows)
             {
@@ -2396,6 +2437,11 @@ namespace Tool_Equipment_Control_System
                     cmd.Parameters.AddWithValue("@HD_Station", ToDbVal(row, "HD_Station"));
                     cmd.Parameters.AddWithValue("@status_id", status_id);
                     cmd.Parameters.AddWithValue("@update_date", DateTime.Now);
+
+                    // ค่าจาก Modal AAD Confirm (มีเฉพาะกรณี Admin AAD Confirm → 99)
+                    bool isConfirm = status_id == "99";
+                    cmd.Parameters.AddWithValue("@New_Status_Id", isConfirm ? ToDbVal(row, "Use_StatusId") : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@New_Responsible", isConfirm ? ToDbVal(row, "Resp_EmpId") : DBNull.Value);
                     cmd.ExecuteNonQuery();
                 }
             }
@@ -2824,27 +2870,48 @@ namespace Tool_Equipment_Control_System
             return name == "" ? code : code + " : " + name;
         }
 
-        /// <summary>Status / ผู้รับผิดชอบ ปัจจุบันของอุปกรณ์ในเอกสาร (key = tool|sub|sys)</summary>
-        private Dictionary<string, DataRow> GetCurrentStatusResp(string Doc_No)
+        /// <summary>Status / ผู้รับผิดชอบ ปัจจุบันของอุปกรณ์ในรายการ (key = tool|sub|sys)
+        ///          อ่านจาก Tool_Equipment_List_View ตาม key ในรายการ → ใช้ได้ทั้งเอกสารเดิม และเอกสารใหม่ที่ยังไม่มี Doc_No</summary>
+        private Dictionary<string, DataRow> GetCurrentStatusResp(DataTable list)
         {
             var map = new Dictionary<string, DataRow>();
-            dc.QryDT_P(conn,
-                "SELECT CAST(A.tool_id AS nvarchar(50)) AS tid, CAST(A.sub_id AS nvarchar(50)) AS sid," +
-                "       CAST(A.system_id AS nvarchar(50)) AS sys," +
+            var keys = new List<string>();
+            foreach (DataRow r in list.Rows)
+            {
+                if (GetVal(r, "CompareData") == "Delete") continue;
+                string k = RowKey(r);
+                if (k != "||" && !keys.Contains(k)) keys.Add(k);
+            }
+            if (keys.Count == 0) return map;
+
+            // WHERE (tool_id=@t0 AND sub_no=@s0 AND sys_status=@y0) OR ... (ใช้ index ของ view ได้)
+            var ps = new List<SqlParameter>();
+            var conds = new List<string>();
+            for (int i = 0; i < keys.Count; i++)
+            {
+                string[] p = keys[i].Split('|');
+                conds.Add("(V.tool_id = @t" + i + " AND V.sub_no = @s" + i + " AND V.sys_status = @y" + i + ")");
+                ps.Add(new SqlParameter("@t" + i, SqlDbType.NVarChar) { Value = p[0] });
+                ps.Add(new SqlParameter("@s" + i, SqlDbType.NVarChar) { Value = p[1] });
+                ps.Add(new SqlParameter("@y" + i, SqlDbType.NVarChar) { Value = p[2] });
+            }
+
+            string sql =
+                "SELECT CAST(V.tool_id AS nvarchar(50)) + '|' + CAST(V.sub_no AS nvarchar(50)) + '|' +" +
+                "       CAST(V.sys_status AS nvarchar(50)) AS k," +
                 "       S.status_name, CAST(V.rsp_empID AS nvarchar(50)) AS rsp_empID, R.pic_dept" +
-                " FROM Withdraw_List A" +
-                " LEFT JOIN Tool_Equipment_List_View V" +
-                "   ON A.tool_id = V.tool_id AND A.sub_id = V.sub_no AND A.system_id = V.sys_status" +
+                " FROM Tool_Equipment_List_View V" +
                 " LEFT JOIN tool_equipment_status S ON S.status_id = V.status_id" +
                 " OUTER APPLY (SELECT TOP 1 pic_dept FROM Responsible_Dept RD" +
                 "              WHERE LTRIM(RTRIM(RD.emp_id)) = LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50))))) R" +
-                " WHERE A.Doc_No = @d",
-                new SqlParameter("@d", SqlDbType.NVarChar) { Value = Doc_No });
+                " WHERE " + string.Join(" OR ", conds.ToArray());
+
+            dc.QryDT_P(conn, sql, ps.ToArray());
 
             if (dc.dt == null) return map;
             foreach (DataRow r in dc.dt.Copy().Rows)
             {
-                string k = GetVal(r, "tid") + "|" + GetVal(r, "sid") + "|" + GetVal(r, "sys");
+                string k = GetVal(r, "k");
                 if (!map.ContainsKey(k)) map[k] = r;
             }
             return map;
@@ -2860,7 +2927,7 @@ namespace Tool_Equipment_Control_System
             DataTable modelM = (DataTable)ViewState["MODEL_MASTER"];
             DataTable cellM = GetCellMaster().Copy();
             DataTable stationM = GetStationMaster().Copy();
-            var cur = GetCurrentStatusResp(litIssueNo.Text.Trim());
+            var cur = GetCurrentStatusResp(src);
 
             var dt = new DataTable();
             foreach (string c in new[] { "RowKey", "FixAssetNo", "ControlNo", "ToolNo",
@@ -2908,7 +2975,8 @@ namespace Tool_Equipment_Control_System
                 dt.Rows.Add(n);
             }
 
-            litCfmDoc.Text = Server.HtmlEncode(litIssueNo.Text.Trim());
+            string doc = litIssueNo.Text.Trim();
+            litCfmDoc.Text = Server.HtmlEncode(doc == "" || doc == "-" ? "(เอกสารใหม่)" : doc);
             litCfmSummary.Text =
                 "<div class='wcf-summary'><b>สรุป :</b>" +
                 "<span class='wcf-badge wcf-ok'>✓ เบิกอุปกรณ์ " + dt.Rows.Count + " รายการ</span></div>";

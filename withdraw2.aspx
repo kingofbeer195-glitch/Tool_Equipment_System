@@ -1322,9 +1322,10 @@
                         <%-- Confirm Button 2 --%>
                         <div id="ConfirmButton2" runat="server" Visible="false">
                             <span class="tooltip-wrap" style="">
+                                <%-- ตรวจข้อมูลแล้วเปิด Modal ยืนยัน Status Use / ผู้รับผิดชอบ (บันทึกจริงใน Modal) --%>
                                 <asp:LinkButton ID="btnConfirm2" runat="server"
                                     CssClass="btn btn-success" OnClick="btnConfirm2_Click"
-                                    OnClientClick="return AADConfirm();" data-toggle="tooltip" data-placement="top"
+                                    data-toggle="tooltip" data-placement="top"
                                     title="ยืนยันการร้องขอ">                                                                        
                                     <span class="glyphicon glyphicon-ok-sign"></span>
                                         AAD Confirm

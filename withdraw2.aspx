@@ -197,91 +197,142 @@
         }
     </script>
 
-    <%--Drop Down Search--%>
+    <%--Drop Down Search + สลับ Dropdown / Textbox (Manual) — ชุดเดียวกับ borrow_tool2--%>
     <script>
-        function initSelect2() {
-            $('.ddlSearch').select2({
-                width: 'resolve'
-                /*placeholder: 'เลือก Model',*/
-                //allowClear: true
+        /* ═════════ ค้นหาแบบจัดอันดับ (แบบ EditLocation) ═════════ */
+        function normalizeText(s) {
+            return (s || '').toLowerCase().replace(/[.\,\-_\/]/g, '');
+        }
+        function isWordStart(rawText, rawTerm) {
+            var term = normalizeText(rawTerm).trim();
+            if (term === '') return false;
+            var words = (rawText || '').toLowerCase().split(/\s+/);
+            for (var i = 0; i < words.length; i++)
+                if (normalizeText(words[i]).indexOf(term) === 0) return true;
+            return false;
+        }
+        function matchScore(rawText, rawTerm) {
+            var text = normalizeText(rawText);
+            var term = normalizeText(rawTerm).trim();
+            if (term === '') return 0;
+            var idx = text.indexOf(term);
+            if (idx === -1) return -1;
+            if (text === term) return 0;
+            if (idx === 0) return 1;
+            if (isWordStart(rawText, rawTerm)) return 2;
+            return 3 + idx;
+        }
+        function rankMatcher(params, data) {
+            if ($.trim(params.term) === '') return data;
+            if (typeof data.text === 'undefined') return null;
+            if (data.id === '') return null;
+            var score = matchScore(data.text, params.term);
+            if (score < 0) return null;
+            var modified = $.extend({}, data, true);
+            modified._score = score;
+            return modified;
+        }
+        function rankSorter(results) {
+            return results.sort(function (a, b) {
+                var sa = (typeof a._score === 'undefined') ? 999 : a._score;
+                var sb = (typeof b._score === 'undefined') ? 999 : b._score;
+                if (sa !== sb) return sa - sb;
+                return (a.text || '').localeCompare(b.text || '');
             });
         }
+        function highlightResult(data) {
+            if (!data.id) return data.text;
+            var term = $.trim($('.select2-container--open .select2-search__field').val() || '');
+            var text = data.text || '';
+            if (!term) return text;
+            var i = text.toLowerCase().indexOf(term.toLowerCase());
+            if (i < 0) return text;
+            var $s = $('<span></span>');
+            $s.append(document.createTextNode(text.substring(0, i)));
+            $s.append($('<b class="s2-hit"></b>').text(text.substr(i, term.length)));
+            $s.append(document.createTextNode(text.substring(i + term.length)));
+            return $s;
+        }
+        function select2Opts() {
+            return {
+                width: 'resolve',
+                dropdownAutoWidth: true,
+                matcher: rankMatcher,
+                sorter: rankSorter,
+                templateResult: highlightResult,
+                language: { noResults: function () { return 'ไม่พบรายการที่ค้นหา'; } }
+            };
+        }
 
-        // โหลดครั้งแรก
-        $(document).ready(function () {
-            initSelect2();
-        });
+        /* ═════════ โหมด Dropdown / Textbox ต่อช่อง ═════════
+           ค่าโหมดอยู่ใน HiddenField (hfModelMode / hfCellMode / hfStationMode)
+           = แหล่งความจริงเดียว — ทั้งฝั่ง Server และ JS อ่านจากตัวนี้               */
+        function applyFieldMode($wrap) {
+            var ddl = $wrap.find('select');
+            var txt = $wrap.find("input[type='text']");
+            var hf = $wrap.find("input[type='hidden']");
+            var btn = $wrap.find('.btnToggle');
+            if (!ddl.length || !txt.length || !hf.length) return;
 
-        // 🔥 สำคัญ: ถ้า GridView Postback
-        Sys.WebForms.PageRequestManager.getInstance().add_endRequest(function () {
-            initSelect2();
-        });
+            // ล้าง select2 เดิมก่อนเสมอ (กันกล่องซ้อน)
+            if (ddl.hasClass('select2-hidden-accessible')) ddl.select2('destroy');
 
-        $(document).on('select2:open', function () {
-            let searchField = document.querySelector('.select2-container--open .select2-search__field');
-
-            if (searchField) {
-                searchField.focus();
-            }
-        });
-    </script>
-
-    <%--Add New Model--%>
-    <script>
-        $(document).on("click", ".btnToggle", function () {
-            var container = $(this).closest("div");
-            var ddl = container.find("select");
-            var txt = container.find("input[type='text']");
-            var hidden = container.find("input[type='hidden']");
-            var btn = $(this);
-            if (ddl.is(":visible")) {
-                if (ddl.hasClass("select2-hidden-accessible")) {
-                    ddl.select2("destroy");
-                }
-                ddl.hide();
+            if (hf.val() === 'txt') {
+                ddl.hide();                 // ❌ ไม่ init select2 ในโหมดกรอกเอง
                 txt.show();
-                btn.text("-");
-                hidden.val("txt");
+                btn.text('-');
             } else {
-                ddl.show();
                 txt.hide();
-                btn.text("+");
-                ddl.select2({ width: 'resolve' });
-                hidden.val("ddl");
+                ddl.show();
+                ddl.select2(select2Opts());
+                btn.text('+');
+            }
+        }
+
+        function initAllDropdowns() {
+            // 1) ช่องที่มีปุ่มสลับ (Model / Cell / Station)
+            $('.btnToggle').each(function () {
+                applyFieldMode($(this).closest('div'));
+            });
+
+            // 2) .ddlSearch อื่นที่ไม่มีปุ่มสลับ (ถ้ามีในอนาคต)
+            $('.ddlSearch').each(function () {
+                var $d = $(this);
+                if ($d.closest('div').find('.btnToggle').length) return;
+                if ($d.hasClass('select2-hidden-accessible')) $d.select2('destroy');
+                $d.select2(select2Opts());
+            });
+        }
+
+        // ✅ กันโค้ดเก่าที่ยังเรียกชื่อเดิม
+        window.initSelect2 = initAllDropdowns;
+        window.restoreModelState = initAllDropdowns;
+
+        // ── กดปุ่ม + / - ──
+        $(document).on('click', '.btnToggle', function () {
+            if ($(this).is(':disabled')) return;
+            var $wrap = $(this).closest('div');
+            var hf = $wrap.find("input[type='hidden']");
+            hf.val(hf.val() === 'txt' ? 'ddl' : 'txt');
+            applyFieldMode($wrap);
+            if (hf.val() === 'txt') $wrap.find("input[type='text']").focus();
+        });
+
+        // ── เปิด dropdown → โฟกัสช่องค้นหา ──
+        $(document).on('select2:open', function () {
+            setTimeout(function () {
+                var f = document.querySelector('.select2-container--open .select2-search__field');
+                if (f) f.focus();
+            }, 0);
+        });
+
+        // ── โหลดครั้งแรก + หลังทุก Partial Postback (ลงทะเบียนครั้งเดียว) ──
+        $(function () {
+            initAllDropdowns();
+            if (typeof (Sys) !== "undefined" && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+                Sys.WebForms.PageRequestManager.getInstance().add_endRequest(initAllDropdowns);
             }
         });
-        function restoreModelState() {
-            $(".btnToggle").each(function () {
-                var container = $(this).closest("div");
-                var ddl = container.find("select");
-                var txt = container.find("input[type='text']");
-                var hidden = container.find("input[type='hidden']");
-                var btn = $(this);
-                if (hidden.val() === "txt") {
-                    if (ddl.hasClass("select2-hidden-accessible")) {
-                        ddl.select2("destroy");
-                    }
-                    ddl.hide();
-                    txt.show();
-                    btn.text("-");
-                    hidden.val("txt");
-                } else {
-                    ddl.show();
-                    txt.hide();
-                    btn.text("+");
-                    ddl.select2({ width: 'resolve' });
-                    hidden.val("ddl");
-                }
-            });
-        }
-        $(document).ready(function () {
-            restoreModelState();
-        });
-        if (typeof (Sys) !== "undefined") {
-            Sys.WebForms.PageRequestManager.getInstance().add_endRequest(function () {
-                restoreModelState();
-            });
-        }
     </script>
 
     <%--Show & HideLoading--%>
@@ -444,21 +495,71 @@
         @keyframes ringD { from, 8% { stroke-dasharray: 0 440; stroke-width: 20; stroke-dashoffset: 0; } 16% { stroke-dasharray: 40 400; stroke-width: 30; stroke-dashoffset: -5; } 36% { stroke-dasharray: 40 400; stroke-width: 30; stroke-dashoffset: -175; } 44%, 50% { stroke-dasharray: 0 440; stroke-width: 20; stroke-dashoffset: -220; } 58% { stroke-dasharray: 40 400; stroke-width: 30; stroke-dashoffset: -225; } 78% { stroke-dasharray: 40 400; stroke-width: 30; stroke-dashoffset: -395; } 86%, to { stroke-dasharray: 0 440; stroke-width: 20; stroke-dashoffset: -440; } }
     </style>
 
-    <%--Select2 : Dropdown Search--%>
+    <%--Select2 : Dropdown Search (แบบ EditLocation / ชุดเดียวกับ borrow_tool2)--%>
     <style>
-        .select2-container--default .select2-selection--single { height: 28px; font-size: 12px; text-align: center; border: 1px solid #ced4da; border-radius: 3px; padding-top: 2px; }
-        .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 20px; text-align: center; }
-        .select2-container--default .select2-selection--single .select2-selection__arrow { height: 26px; }
-        .select2-container--default .select2-results__option { font-size: 12px; }
-        .select2-container--default .select2-search--dropdown .select2-search__field 
-        { 
-            font-size: 14px;
-            text-align: center;
-            height: 25px;
-            background: #d7e3fd;
+        /* กล่องที่ปิดอยู่ : ข้อความที่เลือก "อยู่กลาง" */
+        .select2-container--default .select2-selection--single {
+            height: 28px;
+            font-size: 12px;
+            border: 1px solid #ced4da;
+            border-radius: 5px;
         }
-        .select2-results { text-align: center; }
-    </style>  
+        .select2-container--default .select2-selection--single .select2-selection__rendered {
+            line-height: 26px;
+            text-align: center;
+            padding-left: 8px;
+            padding-right: 20px;
+        }
+        .select2-container--default .select2-selection--single .select2-selection__arrow { height: 26px; }
+
+        /* dropdown ที่เปิด : รายการ "ชิดซ้าย" อ่านง่าย */
+        .select2-dropdown { border-color: var(--nv-600, #2980b9) !important; }
+        .select2-results { text-align: left; }
+        .select2-container--default .select2-results__option {
+            font-size: 12px;
+            text-align: left;
+            padding: 5px 10px;
+        }
+        .select2-container--default .select2-results__option--highlighted[aria-selected] {
+            background-color: var(--nv-600, #2980b9) !important;
+        }
+        /*.select2-results__option--highlighted .s2-hit { color: #fff; }*/
+
+        /* กล่องค้นหา */
+        .select2-container--default .select2-search--dropdown .select2-search__field {
+            font-size: 13px;
+            text-align: left;
+            height: 28px;
+            border: 1px solid #c8d6e5 !important;
+            border-radius: 5px;
+            background: #e7f2fb;
+        }
+
+        /* คำที่ตรงกับคำค้น */
+        /*.s2-hit {
+            font-weight: 700;
+            color: #b4412f;
+            background: #fff3cd;
+            border-radius: 2px;
+        }*/
+
+        /* คำที่ตรงกับคำค้น : แถวปกติ → ตัวแดงเข้ม + พื้นเหลืองอ่อน */
+        .s2-hit {
+            font-weight: 700;
+            color: #b4412f;
+            background: #fff3cd;
+            border-radius: 2px;
+            padding: 0 1px;
+        }
+
+        /* แถวที่ hover / เลือก (พื้นน้ำเงิน) → ตัดพื้นเหลืองทิ้ง ใช้ตัวขาว + ขีดเส้นใต้แทน */
+        .select2-container--default .select2-results__option--highlighted[aria-selected] .s2-hit {
+            color: #fff !important;
+            background: transparent !important;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+    </style>
 
     <style>
         .badge { display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 600; border-radius: 12px; color: #fff; }

@@ -933,6 +933,9 @@ namespace Tool_Equipment_Control_System
                     cmd.ExecuteNonQuery();
                 }
 
+                // ── ประวัติเปลี่ยน Location (History_Change_Location) : Current → Use ของ Request List ──
+                InsertLocationHistory_Tx(conn, tx, BorrowListDT, Doc_No, empId);
+
                 tx.Commit();
                 ok = true;
             }
@@ -2315,6 +2318,11 @@ namespace Tool_Equipment_Control_System
                             // 3.1) ✅ เก็บข้อมูล Requester (ใน tx เดียวกัน)
                             SaveRequesterInfo(c, tx, Doc_No, true, txtTel.Text.Trim());
 
+                            // 3.2) ✅ AAD Confirm (99) → ประวัติเปลี่ยน Location (ใน tx เดียวกัน)
+                            if (status_id == "99")
+                                InsertLocationHistory_Tx(c, tx, dt, Doc_No,
+                                    Session["emp_id"] != null ? Session["emp_id"].ToString().Trim() : "");
+
                             // 4) ทุกอย่างผ่าน → commit
                             tx.Commit();
                             success = true;
@@ -3284,6 +3292,123 @@ namespace Tool_Equipment_Control_System
                       "<span class='glyphicon glyphicon-book'></span> " + Server.HtmlEncode(btnText) + "</a>");
             sb.Append("</div>");
             return sb.ToString();
+        }
+
+        #endregion
+
+        #region --- History_Change_Location : บันทึกตอน AAD Confirm (→ 99 Wait Update) ---
+
+        private static object IntOrNull(string v)
+        {
+            int n;
+            return int.TryParse((v ?? "").Trim(), out n) ? (object)n : DBNull.Value;
+        }
+
+        /// <summary>
+        /// บันทึกประวัติเปลี่ยน Location 1 แถวต่อรายการ (รูปแบบเดียวกับหน้า EditLocation)
+        ///   เดิม (Old_*) : Dept / Model / Cell / Station จาก Request List ฝั่ง Current
+        ///                  Status / ผู้รับผิดชอบ / Location1 → snapshot จาก Tool_Equipment_List_View ณ ตอนยืนยัน
+        ///   ใหม่ (New_*) : ฝั่ง Use ของ Request List + Status Use / ผู้รับผิดชอบ ที่เลือกใน Modal
+        ///   ผู้รับผิดชอบเก็บแบบ "empId - ชื่อ" (เหมือน EditLocation) , Doc_No = เลขเอกสารเบิก
+        /// ใช้ connection / transaction เดียวกับการยืนยัน → บันทึกไม่ได้ = ยืนยันไม่สำเร็จทั้งเอกสาร
+        /// </summary>
+        private void InsertLocationHistory_Tx(SqlConnection c, SqlTransaction tx, DataTable dt, string Doc_No, string editBy)
+        {
+            const string sql = @"
+                INSERT INTO tool_eduipment_system.dbo.History_Change_Location
+                (Tool_id, Tool_sub, System_id, Fix_Asset_No, Control_No, Tool_No,
+                 Old_Status_Id, New_Status_Id,
+                 Old_DeptCode, New_DeptCode,
+                 Old_Responsible, New_Responsible,
+                 Old_Model_Id, Old_Model_Name, New_Model_Id, New_Model_Text, HD_Model,
+                 Old_Cell_Id, Old_Cell_Name, New_Cell_Id, New_Cell_Text, HD_Cell,
+                 Old_Station_Id, Old_Station_Name, New_Station_Id, New_Station_Text, HD_Station,
+                 Old_Location1_id, Edit_By, Edit_Date, Remark, Doc_No)
+                SELECT
+                 @ToolId, @ToolSub, @SystemId, @FixAsset, @ControlNo, @ToolNo,
+                 V.status_id, @NewStatusId,
+                 @OldDept, @NewDept,
+                 CASE WHEN ISNULL(LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50)))), '') = '' THEN NULL
+                      WHEN ISNULL(RO.pic_dept, '') = '' THEN LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50))))
+                      ELSE LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50)))) + ' - ' + RO.pic_dept END,
+                 CASE WHEN ISNULL(@NewResp, '') = '' THEN NULL
+                      WHEN ISNULL(RN.pic_dept, '') = '' THEN @NewResp
+                      ELSE @NewResp + ' - ' + RN.pic_dept END,
+                 @OldModelId, @OldModelName,
+                 CASE WHEN @HDModel = 'txt' THEN NULL ELSE @NewModelId END,
+                 CASE WHEN @HDModel = 'txt' THEN @AddModel ELSE M.model_name END, @HDModel,
+                 @OldCellId, @OldCellName,
+                 CASE WHEN @HDCell = 'txt' THEN NULL ELSE @NewCellId END,
+                 CASE WHEN @HDCell = 'txt' THEN @AddCell ELSE L2.location2_name END, @HDCell,
+                 @OldStationId, @OldStationName,
+                 CASE WHEN @HDStation = 'txt' THEN NULL ELSE @NewStationId END,
+                 CASE WHEN @HDStation = 'txt' THEN @AddStation ELSE L3.location3_name END, @HDStation,
+                 V.location1_id, @EditBy, GETDATE(), @Remark, @DocNo
+                FROM (SELECT 1 AS x) D
+                OUTER APPLY (SELECT TOP 1 status_id, rsp_empID, location1_id FROM Tool_Equipment_List_View
+                             WHERE tool_id = @ToolId AND sub_no = @ToolSub AND sys_status = @SystemId) V
+                OUTER APPLY (SELECT TOP 1 pic_dept FROM Responsible_Dept
+                             WHERE LTRIM(RTRIM(emp_id)) = LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50))))) RO
+                OUTER APPLY (SELECT TOP 1 pic_dept FROM Responsible_Dept
+                             WHERE LTRIM(RTRIM(emp_id)) = @NewResp) RN
+                OUTER APPLY (SELECT TOP 1 model_name FROM jig_tool_system.dbo.draw_master_model
+                             WHERE CAST(model_id AS nvarchar(50)) = @NewModelId) M
+                OUTER APPLY (SELECT TOP 1 location2_name FROM jig_tool_system.dbo.master_location2
+                             WHERE location2_id = @NewCellId) L2
+                OUTER APPLY (SELECT TOP 1 location3_name FROM jig_tool_system.dbo.master_location3
+                             WHERE location3_id = @NewStationId) L3;";
+
+            string remark = Cut("เบิกอุปกรณ์ " + Doc_No +
+                                (txt_borrowComment.Text.Trim() == "" ? "" : " : " + txt_borrowComment.Text.Trim()), 500);
+
+            foreach (DataRow r in dt.Rows)
+            {
+                if (GetVal(r, "CompareData") == "Delete") continue;
+
+                string hdModel = GetVal(r, "HD_Model") == "txt" ? "txt" : "ddl";
+                string hdCell = GetVal(r, "HD_Cell") == "txt" ? "txt" : "ddl";
+                string hdStation = GetVal(r, "HD_Station") == "txt" ? "txt" : "ddl";
+
+                using (var cmd = new SqlCommand(sql, c, tx))
+                {
+                    cmd.Parameters.Add("@ToolId", SqlDbType.NVarChar, 50).Value = GetVal(r, "ToolId");
+                    cmd.Parameters.Add("@ToolSub", SqlDbType.NVarChar, 50).Value = GetVal(r, "ToolSub");
+                    cmd.Parameters.Add("@SystemId", SqlDbType.NVarChar, 10).Value = GetVal(r, "SystemId");
+                    cmd.Parameters.Add("@FixAsset", SqlDbType.NVarChar, 100).Value = DbStr(GetVal(r, "FixAssetNo"), 100);
+                    cmd.Parameters.Add("@ControlNo", SqlDbType.NVarChar, 100).Value = DbStr(GetVal(r, "ControlNo"), 100);
+                    cmd.Parameters.Add("@ToolNo", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "ToolNo"), 200);
+
+                    cmd.Parameters.Add("@NewStatusId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "Use_StatusId"));
+                    cmd.Parameters.Add("@OldDept", SqlDbType.NVarChar, 50).Value = DbStr(GetVal(r, "DeptCode"), 50);
+                    cmd.Parameters.Add("@NewDept", SqlDbType.NVarChar, 50).Value = DbStr(GetVal(r, "Use_DeptCode"), 50);
+                    cmd.Parameters.Add("@NewResp", SqlDbType.NVarChar, 50).Value = Cut(GetVal(r, "Resp_EmpId"), 50);
+
+                    cmd.Parameters.Add("@OldModelId", SqlDbType.NVarChar, 50).Value = DbStr(GetVal(r, "ModelId"), 50);
+                    cmd.Parameters.Add("@OldModelName", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "ModelName"), 200);
+                    cmd.Parameters.Add("@NewModelId", SqlDbType.NVarChar, 50).Value = DbStr(GetVal(r, "Use_ModelId"), 50);
+                    cmd.Parameters.Add("@AddModel", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "Add_Model"), 200);
+                    cmd.Parameters.Add("@HDModel", SqlDbType.NVarChar, 10).Value = hdModel;
+
+                    cmd.Parameters.Add("@OldCellId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "CellId"));
+                    cmd.Parameters.Add("@OldCellName", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "CellName"), 200);
+                    cmd.Parameters.Add("@NewCellId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "Use_CellId"));
+                    cmd.Parameters.Add("@AddCell", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "Add_Cell"), 200);
+                    cmd.Parameters.Add("@HDCell", SqlDbType.NVarChar, 10).Value = hdCell;
+
+                    cmd.Parameters.Add("@OldStationId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "StationId"));
+                    cmd.Parameters.Add("@OldStationName", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "StationName"), 200);
+                    cmd.Parameters.Add("@NewStationId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "Use_StationId"));
+                    cmd.Parameters.Add("@AddStation", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "Add_Station"), 200);
+                    cmd.Parameters.Add("@HDStation", SqlDbType.NVarChar, 10).Value = hdStation;
+
+                    cmd.Parameters.Add("@EditBy", SqlDbType.NVarChar, 50).Value = Cut(editBy, 50);
+                    cmd.Parameters.Add("@Remark", SqlDbType.NVarChar, 500).Value = remark;
+                    cmd.Parameters.Add("@DocNo", SqlDbType.NVarChar, 30).Value = Doc_No;
+
+                    if (cmd.ExecuteNonQuery() != 1)
+                        throw new InvalidOperationException("บันทึกประวัติเปลี่ยน Location (History_Change_Location) ไม่สำเร็จ : " + GetVal(r, "ControlNo"));
+                }
+            }
         }
 
         #endregion

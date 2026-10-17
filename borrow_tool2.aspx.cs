@@ -2558,6 +2558,36 @@ namespace Tool_Equipment_Control_System
                 btnAdd.CssClass = "btn btn-secondary btn-sm";
             }
         }
+        /// <summary>
+        /// Key ของแถวที่กด Remove
+        ///   1) gvBorrowList.DataKeys (DataKeyNames="ToolId,ToolSub,SystemId" → อยู่ใน ControlState ไม่หายตอน postback)
+        ///   2) สำรอง : HiddenField ในคอลัมน์ Pic (ID ต้องตรง markup : hdtoolId / hdToolSub / hdSystemId)
+        /// </summary>
+        private bool GetRemoveRowKeys(int rowIndex, out string toolId, out string toolSub, out string systemId)
+        {
+            toolId = toolSub = systemId = "";
+
+            if (gvBorrowList.DataKeys != null && rowIndex < gvBorrowList.DataKeys.Count && gvBorrowList.DataKeys[rowIndex] != null)
+            {
+                var v = gvBorrowList.DataKeys[rowIndex].Values;
+                toolId = Convert.ToString(v["ToolId"]).Trim();
+                toolSub = Convert.ToString(v["ToolSub"]).Trim();
+                systemId = Convert.ToString(v["SystemId"]).Trim();
+                if (toolId != "") return true;
+            }
+
+            GridViewRow gvRow = gvBorrowList.Rows[rowIndex];
+            HiddenField hdToolId = gvRow.FindControl("hdtoolId") as HiddenField;
+            HiddenField hdToolSub = gvRow.FindControl("hdToolSub") as HiddenField;
+            HiddenField hdSystemId = gvRow.FindControl("hdSystemId") as HiddenField;
+            if (hdToolId == null || hdToolSub == null || hdSystemId == null) return false;
+
+            toolId = hdToolId.Value.Trim();
+            toolSub = hdToolSub.Value.Trim();
+            systemId = hdSystemId.Value.Trim();
+            return toolId != "";
+        }
+
         protected void gvBorrowList_RowCommand(object sender, GridViewCommandEventArgs e)
         {
             if (e.CommandName != "RemoveItem") return;
@@ -2566,21 +2596,13 @@ namespace Tool_Equipment_Control_System
 
             if (rowIndex < 0 || rowIndex >= gvBorrowList.Rows.Count) return;
 
-            GridViewRow gvRow = gvBorrowList.Rows[rowIndex];
-
-            HiddenField hdToolId = gvRow.FindControl("hdtoolId") as HiddenField;
-            HiddenField hdToolSub = gvRow.FindControl("hdtoolSub") as HiddenField;
-            HiddenField hdSystemId = gvRow.FindControl("hdsystemId") as HiddenField;
-
-            if (hdToolId == null || hdToolSub == null || hdSystemId == null)
+            // ── Key ของแถว : DataKeys (เก็บใน ControlState) ก่อน → ไม่มีค่อยอ่าน HiddenField ──
+            string toolId, toolSub, systemId;
+            if (!GetRemoveRowKeys(rowIndex, out toolId, out toolSub, out systemId))
             {
-                alert_toast("ไม่พบข้อมูล Hidden Field", "Remove Error", "error", "5000");
+                alert_toast("ไม่พบ Key ของรายการที่ต้องการลบ (ToolId / ToolSub / SystemId)", "Remove Error", "error", "5000");
                 return;
             }
-
-            string toolId = hdToolId.Value;
-            string toolSub = hdToolSub.Value;
-            string systemId = hdSystemId.Value;
 
             // ── STEP 1 : Sync GridView → BorrowListDT (ไม่ Compare) ──────────────
             SyncGridViewToBorrowListDT();

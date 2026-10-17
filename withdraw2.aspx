@@ -1079,7 +1079,7 @@
                     </div>
                     <div class="card-body" style="margin-bottom:10px;">
                         <div class="tbl-wrap step3-wrap" style="max-height: 350px;">
-                            <asp:GridView ID="gvBorrowList" runat="server"
+                            <asp:GridView ID="gvBorrowList" runat="server" DataKeyNames="ToolId,ToolSub,SystemId"
                                 CssClass="data-table change-table fixed-header fx-table"
                                 style="min-width:1800px;"
                                 AutoGenerateColumns="false"

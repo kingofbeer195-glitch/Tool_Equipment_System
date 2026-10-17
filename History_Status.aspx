@@ -267,6 +267,29 @@
             transform: translateY(-50%); cursor: pointer;
             color: #666; font-size: 14px; opacity:0.6;
         }
+
+        /* Toggle : Period | All */
+        .date-mode {
+            display: inline-flex; height: 34px;
+            border: 1.5px solid #c8d6e5; border-radius: 6px;
+            overflow: hidden; background: #fff;
+        }
+        .date-mode .dm-btn {
+            display: flex; align-items: center;
+            padding: 0 14px;
+            font-size: 13px; font-weight: 600; color: #1a3a5c;
+            text-decoration: none; transition: background .15s, color .15s;
+        }
+        .date-mode .dm-btn + .dm-btn { border-left: 1.5px solid #c8d6e5; }
+        .date-mode .dm-btn:hover { background: #eaf1f8; color: #1a3a5c; text-decoration: none; }
+        .date-mode .dm-btn.active,
+        .date-mode .dm-btn.active:hover { background: #1a3a5c; color: #fff; }
+
+        /* โหมด All : ปิดช่องวันที่ */
+        .form-group input.date-input:disabled {
+            background: #eef1f5; color: #9aa5b1; cursor: not-allowed;
+        }
+        .date-input:disabled + .calendar-icon { opacity: .2; pointer-events: none; }
     </style>
 
     <style>
@@ -764,6 +787,17 @@
                                     </asp:DropDownList>
                                 </div>
 
+                                <%--Date Mode : Period | All--%>
+                                <div class="form-group">
+                                    <label style="margin-bottom:0px">🗓️ ช่วงวันที่</label>
+                                    <div class="date-mode">
+                                        <asp:LinkButton ID="btnReqPeriod" runat="server" CssClass="dm-btn active"
+                                            CausesValidation="false" OnClick="btnReqPeriod_Click">Period</asp:LinkButton>
+                                        <asp:LinkButton ID="btnReqAll" runat="server" CssClass="dm-btn"
+                                            CausesValidation="false" OnClick="btnReqAll_Click">All</asp:LinkButton>
+                                    </div>
+                                </div>
+
                                 <%--Date From--%>
                                 <div class="form-group" style="width:150px;">
                                     <label style="margin-bottom:0px">📅 FROM (Issue Date)</label>
@@ -954,6 +988,17 @@
                                 <div class="form-group" style="width:150px;">
                                     <label style="margin-bottom:0px;">✏️ EDIT BY</label>
                                     <asp:TextBox ID="txtEditBy" runat="server" CssClass="form-control" placeholder="Emp ID" />
+                                </div>
+
+                                <%--Date Mode : Period | All--%>
+                                <div class="form-group">
+                                    <label style="margin-bottom:0px">🗓️ ช่วงวันที่</label>
+                                    <div class="date-mode">
+                                        <asp:LinkButton ID="btnCLPeriod" runat="server" CssClass="dm-btn active"
+                                            CausesValidation="false" OnClick="btnCLPeriod_Click">Period</asp:LinkButton>
+                                        <asp:LinkButton ID="btnCLAll" runat="server" CssClass="dm-btn"
+                                            CausesValidation="false" OnClick="btnCLAll_Click">All</asp:LinkButton>
+                                    </div>
                                 </div>
 
                                 <%--Date From--%>

@@ -25,6 +25,18 @@ namespace Tool_Equipment_Control_System
             set { ViewState["ActiveTab"] = value; }
         }
 
+        // โหมด Filter วันที่ : "Period" (ค่าเริ่มต้น) / "All"
+        protected string ReqDateMode
+        {
+            get { return ViewState["ReqDateMode"] as string ?? "Period"; }
+            set { ViewState["ReqDateMode"] = value; }
+        }
+        protected string CLDateMode
+        {
+            get { return ViewState["CLDateMode"] as string ?? "Period"; }
+            set { ViewState["CLDateMode"] = value; }
+        }
+
         protected void Page_Load(object sender, EventArgs e)
         {
             Page.Title = "History";
@@ -34,13 +46,9 @@ namespace Tool_Equipment_Control_System
 
             if (!IsPostBack)
             {
-                // ค่าเริ่มต้น: 7 วันล่าสุด (อิง issue_date)
-                txtDateFrom.Text = DateTime.Today.AddDays(-7).ToString("dd-MMM-yyyy");
-                txtDateTo.Text = DateTime.Today.ToString("dd-MMM-yyyy");
-
-                // ค่าเริ่มต้นของ Tab History Change Location: 7 วันล่าสุด (อิง Edit_Date)
-                txtCLDateFrom.Text = DateTime.Today.AddDays(-7).ToString("dd-MMM-yyyy");
-                txtCLDateTo.Text = DateTime.Today.ToString("dd-MMM-yyyy");
+                // ค่าเริ่มต้นทั้ง 2 Tab : Period + 7 วันล่าสุด
+                SetReqDateMode("Period");   // อิง issue_date
+                SetCLDateMode("Period");    // อิง Edit_Date
 
                 Bind_ddlProcess();
                 Bind_ddlStatus();
@@ -177,11 +185,15 @@ namespace Tool_Equipment_Control_System
                 if (!string.IsNullOrEmpty(txtSearchEmpId.Text.Trim()))
                     where += " AND V.issue_empid LIKE '%" + txtSearchEmpId.Text.Trim().Replace("'", "''") + "%'";
 
-                DateTime dFrom, dTo;
-                if (DateTime.TryParse(txtDateFrom.Text.Trim(), out dFrom))
-                    where += " AND V.issue_date >= '" + dFrom.ToString("yyyy-MM-dd") + " 00:00:00'";
-                if (DateTime.TryParse(txtDateTo.Text.Trim(), out dTo))
-                    where += " AND V.issue_date <= '" + dTo.ToString("yyyy-MM-dd") + " 23:59:59'";
+                // ===== Filter Issue Date : เฉพาะโหมด Period (All = ไม่สนใจวันที่) =====
+                if (ReqDateMode == "Period")
+                {
+                    DateTime dFrom, dTo;
+                    if (DateTime.TryParse(txtDateFrom.Text.Trim(), out dFrom))
+                        where += " AND V.issue_date >= '" + dFrom.ToString("yyyy-MM-dd") + " 00:00:00'";
+                    if (DateTime.TryParse(txtDateTo.Text.Trim(), out dTo))
+                        where += " AND V.issue_date <= '" + dTo.ToString("yyyy-MM-dd") + " 23:59:59'";
+                }
 
                 // ===== STEP 2: ถ้ามี Doc_No จาก step 1 ให้ filter ด้วย IN (...) =====
                 if (docNos != null)
@@ -221,8 +233,7 @@ namespace Tool_Equipment_Control_System
             ddlProcess.ClearSelection();
             ddlStatus.ClearSelection();
             ddlDept.ClearSelection();
-            txtDateFrom.Text = DateTime.Today.AddDays(-7).ToString("dd-MMM-yyyy");
-            txtDateTo.Text = DateTime.Today.ToString("dd-MMM-yyyy");
+            SetReqDateMode("Period");   // กลับเป็น Period + 7 วัน
             txtSearchRequest.Text = "";
             Bind_HistoryList();
         }
@@ -750,14 +761,17 @@ namespace Tool_Equipment_Control_System
                 if (!string.IsNullOrEmpty(txtEditBy.Text.Trim()))
                     where += " AND H.Edit_By LIKE '%" + txtEditBy.Text.Trim().Replace("'", "''") + "%'";
 
-                // Filter Edit Date
-                DateTime dFrom, dTo;
+                // Filter Edit Date : เฉพาะโหมด Period (All = ไม่สนใจวันที่)
+                if (CLDateMode == "Period")
+                {
+                    DateTime dFrom, dTo;
 
-                if (DateTime.TryParse(txtCLDateFrom.Text.Trim(), out dFrom))
-                    where += " AND H.Edit_Date >= '" + dFrom.ToString("yyyy-MM-dd") + " 00:00:00'";
+                    if (DateTime.TryParse(txtCLDateFrom.Text.Trim(), out dFrom))
+                        where += " AND H.Edit_Date >= '" + dFrom.ToString("yyyy-MM-dd") + " 00:00:00'";
 
-                if (DateTime.TryParse(txtCLDateTo.Text.Trim(), out dTo))
-                    where += " AND H.Edit_Date <= '" + dTo.ToString("yyyy-MM-dd") + " 23:59:59'";
+                    if (DateTime.TryParse(txtCLDateTo.Text.Trim(), out dTo))
+                        where += " AND H.Edit_Date <= '" + dTo.ToString("yyyy-MM-dd") + " 23:59:59'";
+                }
 
                 string str = "SELECT H.*, " +
                              " SO.status_name AS Old_Status_Name, SN.status_name AS New_Status_Name" +
@@ -805,11 +819,45 @@ namespace Tool_Equipment_Control_System
         {
             txtSearchCL.Text = "";
             txtEditBy.Text = "";
-            //txtCLDateFrom.Text = "";
-            //txtCLDateTo.Text = "";
-            txtCLDateFrom.Text = DateTime.Today.AddDays(-7).ToString("dd-MMM-yyyy");
-            txtCLDateTo.Text = DateTime.Today.ToString("dd-MMM-yyyy");
+            SetCLDateMode("Period");    // กลับเป็น Period + 7 วัน
             Bind_ChangeLocationList();
+        }
+
+
+        // =====================================================
+        //  Date Mode Toggle : Period | All (ทั้ง 2 Tab)
+        // =====================================================
+        protected void btnReqPeriod_Click(object sender, EventArgs e) { SetReqDateMode("Period"); Bind_HistoryList(); }
+        protected void btnReqAll_Click(object sender, EventArgs e)    { SetReqDateMode("All");    Bind_HistoryList(); }
+        protected void btnCLPeriod_Click(object sender, EventArgs e)  { SetCLDateMode("Period");  Bind_ChangeLocationList(); }
+        protected void btnCLAll_Click(object sender, EventArgs e)     { SetCLDateMode("All");     Bind_ChangeLocationList(); }
+
+        // Period : เปิดช่องวันที่ + รีเซ็ตเป็น 7 วันล่าสุด / All : ปิดช่องวันที่
+        private void SetReqDateMode(string mode)
+        {
+            ReqDateMode = mode;
+            ApplyDateMode(mode, btnReqPeriod, btnReqAll, txtDateFrom, txtDateTo);
+        }
+        private void SetCLDateMode(string mode)
+        {
+            CLDateMode = mode;
+            ApplyDateMode(mode, btnCLPeriod, btnCLAll, txtCLDateFrom, txtCLDateTo);
+        }
+        private void ApplyDateMode(string mode, LinkButton btnPeriod, LinkButton btnAll, TextBox txtFrom, TextBox txtTo)
+        {
+            bool isPeriod = mode == "Period";
+
+            btnPeriod.CssClass = isPeriod ? "dm-btn active" : "dm-btn";
+            btnAll.CssClass = isPeriod ? "dm-btn" : "dm-btn active";
+
+            txtFrom.Enabled = isPeriod;
+            txtTo.Enabled = isPeriod;
+
+            if (isPeriod)
+            {
+                txtFrom.Text = DateTime.Today.AddDays(-7).ToString("dd-MMM-yyyy");
+                txtTo.Text = DateTime.Today.ToString("dd-MMM-yyyy");
+            }
         }
 
 

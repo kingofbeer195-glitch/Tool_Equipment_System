@@ -1792,6 +1792,58 @@
         }, true);
     </script>
 
+    <%--Modal Update (Wait Update 99) : ปิดทุกช่อง / ✏️ เปิดแก้ทีละคอลัมน์--%>
+    <style>
+        .wcf-table select.upd-ctl { min-width:170px; height:30px; padding:2px 6px; font-size:12.5px; border-radius:6px; border:1px solid #c8d6e5; background:#fff; }
+        .wcf-table select.upd-locked { pointer-events:none; background:#eef1f4 !important; color:#4a5560; border-color:#d5dbe1 !important; -webkit-appearance:none; -moz-appearance:none; appearance:none; }
+        .wcf-table select.upd-ctl.upd-changed { background:#e7f2fb !important; border:2px solid #2980b9 !important; font-weight:700; }
+        .upd-unlock { margin-left:4px; padding:0 5px; border:1px solid rgba(255,255,255,.7); border-radius:4px; background:rgba(255,255,255,.18); cursor:pointer; font-size:12px; line-height:18px; }
+        .upd-unlock.on { background:#fff; border-color:#fff; box-shadow:0 0 0 2px rgba(41,128,185,.6); }
+        .upd-chip { display:inline-block; padding:0 8px; border-radius:4px; background:#e7f2fb; border:1px solid #2980b9; font-weight:700; color:#245177; }
+        .wcf-badge.upd-badge-lock { background:#eef1f4; color:#4a5560; border-color:#d5dbe1; }
+    </style>
+    <script>
+        var UPD_OPEN = {};     // คอลัมน์ที่เปิดแก้ไขอยู่ (คงไว้หลัง Postback)
+        function updModal() { return document.getElementById('<%= pnlUpdateModal.ClientID %>'); }
+        function closeUpdateModal() { var m = updModal(); if (m) m.style.display = 'none'; }
+        function updSetCol(col, open) {
+            var m = updModal(); if (!m) return;
+            UPD_OPEN[col] = open;
+            var ctls = m.querySelectorAll('select.upd-ctl[data-col="' + col + '"]');
+            for (var i = 0; i < ctls.length; i++) {
+                ctls[i].classList.toggle('upd-locked', !open);
+                ctls[i].setAttribute('tabindex', open ? '0' : '-1');
+            }
+            var b = m.querySelector('.upd-unlock[data-col="' + col + '"]');
+            if (b) b.classList.toggle('on', open);
+        }
+        function updToggle(btn) { var col = btn.getAttribute('data-col'); updSetCol(col, !UPD_OPEN[col]); return false; }
+        function updRestoreLocks() { for (var k in UPD_OPEN) if (UPD_OPEN[k]) updSetCol(k, true); updMarkChanged(); }
+        function updMarkChanged() {
+            var m = updModal(); if (!m) return 0;
+            var n = 0, ctls = m.querySelectorAll('select.upd-ctl');
+            for (var i = 0; i < ctls.length; i++) {
+                var ch = ctls[i].value !== (ctls[i].getAttribute('data-orig') || '');
+                ctls[i].classList.toggle('upd-changed', ch);
+                if (ch) n++;
+            }
+            return n;
+        }
+        document.addEventListener('change', function (e) {
+            if (e.target && e.target.classList && e.target.classList.contains('upd-ctl')) updMarkChanged();
+        }, true);
+        function updConfirm() {
+            var n = updMarkChanged();
+            var msg = '⚠️ ยืนยัน Update ข้อมูลอุปกรณ์จริง\n\n' +
+                      (n > 0 ? 'มีการแก้ไข ' + n + ' ช่อง (สีฟ้า)\n' : 'ไม่มีการแก้ไข — ใช้ค่าที่ AAD Confirm ไว้\n') +
+                      'เมื่อยืนยันแล้วเอกสารจะเป็น Completed และย้อนกลับไม่ได้\n\nกด OK เพื่อดำเนินการต่อ';
+            if (!confirm(msg)) return false;
+            if (typeof showLoading === 'function') showLoading();
+            else if (typeof showFullOverlay === 'function') showFullOverlay('กำลัง Update ข้อมูล...', 'กรุณารอสักครู่');
+            return true;
+        }
+    </script>
+
     <asp:ScriptManager runat="server" ID="scriptManager1" EnablePageMethods="true"></asp:ScriptManager>
 
     <asp:UpdateProgress ID="UpdateProgress1" runat="server" AssociatedUpdatePanelID="UP1">
@@ -2872,6 +2924,100 @@
                         <asp:LinkButton ID="btnConfirmModalOk" runat="server" CssClass="btn btn-success" Style="text-shadow:none;"
                             OnClick="btnConfirmModalOk_Click" OnClientClick="return cfmConfirm();">
                             <span class="glyphicon glyphicon-ok-sign"></span> ยืนยัน AAD Confirm
+                        </asp:LinkButton>
+                    </div>
+                </div>
+            </asp:Panel>
+
+            <%-- ===== Modal : Update (Wait Update 99 → 100) — เข้าจาก ApproveStatus ปุ่ม Update ===== --%>
+            <asp:Panel ID="pnlUpdateModal" runat="server" CssClass="wcf-overlay" Style="display:none;">
+                <div class="wcf-box">
+                    <div class="wcf-head">
+                        <span>Update ข้อมูลอุปกรณ์ : จัดเก็บ <span class="wcf-doc"><asp:Literal ID="litUpdDoc" runat="server" /></span></span>
+                        <button type="button" class="wcf-x" onclick="closeUpdateModal();" aria-label="ปิด">&times;</button>
+                    </div>
+
+                    <div class="wcf-body">
+                        <asp:Literal ID="litUpdSummary" runat="server" />
+
+                        <div class="cfm-warn">
+                            <span class="cfm-warn-ico">⚠️</span>
+                            <div>
+                                <b class="cfm-warn-title">ตรวจสอบข้อมูลก่อน Update ข้อมูลอุปกรณ์จริง</b>
+                                ทุกช่องปิดไว้ (ค่าที่ AAD Confirm ไว้) — ถ้าต้องแก้ ให้กด <b>✏️</b> ที่หัวคอลัมน์เพื่อเปิดแก้ไขคอลัมน์นั้น · ช่องที่แก้แล้วจะเป็น <span class="upd-chip">สีฟ้า</span>
+                            </div>
+                        </div>
+
+                        <div class="wcf-sec">รายการ <small>(Current → ปลายทาง)</small></div>
+
+                        <div class="tbl-wrap" style="max-height:440px; overflow:auto;">
+                            <asp:GridView ID="gvUpdate" runat="server"
+                                CssClass="data-table wcf-table" GridLines="None" CellSpacing="0"
+                                style="min-width:1700px;" AutoGenerateColumns="false"
+                                OnRowDataBound="gvUpdate_RowDataBound" EmptyDataText="ไม่มีรายการ" UseAccessibleHeader="true">
+                                <Columns>
+                                    <asp:BoundField DataField="RowNo" HeaderText="#" ItemStyle-Width="35px" />
+                                    <asp:BoundField DataField="FixAssetNo" HeaderText="Fix Asset" ItemStyle-Width="100px" />
+                                    <asp:BoundField DataField="ControlNo" HeaderText="Control No" ItemStyle-Width="110px" />
+                                    <asp:BoundField DataField="ToolNo" HeaderText="Tool No / Model" />
+
+                                    <%--═══ Current (ณ ตอน AAD Confirm) ═══--%>
+                                    <asp:BoundField DataField="OldDept" HeaderText="Current Dept" HeaderStyle-CssClass="hdr-current zone-divider" ItemStyle-CssClass="col-current zone-divider" />
+                                    <asp:BoundField DataField="OldModel" HeaderText="Current Model" HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldCell" HeaderText="Current Cell" HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldStation" HeaderText="Current Station" HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldStatus" HeaderText="Current Status" HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldResp" HeaderText="Current ผู้รับผิดชอบ" HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--═══ ปลายทาง : ปิดไว้ทั้งหมด — ✏️ เปิดแก้ทีละคอลัมน์ ═══--%>
+                                    <asp:TemplateField HeaderStyle-CssClass="hdr-aad zone-divider" ItemStyle-CssClass="col-aad zone-divider">
+                                        <HeaderTemplate>
+                                            Status Use <button type="button" class="upd-unlock" data-col="st" onclick="return updToggle(this);" title="เปิด / ปิด การแก้ไขคอลัมน์นี้">✏️</button>
+                                        </HeaderTemplate>
+                                        <ItemTemplate>
+                                            <asp:HiddenField ID="hfUpdKey" runat="server" Value='<%# Eval("RowKey") %>' />
+                                            <asp:DropDownList ID="ddlUpdStatus" runat="server" />
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
+                                    <asp:TemplateField HeaderStyle-CssClass="hdr-aad" ItemStyle-CssClass="col-aad">
+                                        <HeaderTemplate>
+                                            ผู้รับผิดชอบ <button type="button" class="upd-unlock" data-col="rp" onclick="return updToggle(this);" title="เปิด / ปิด การแก้ไขคอลัมน์นี้">✏️</button>
+                                        </HeaderTemplate>
+                                        <ItemTemplate>
+                                            <asp:DropDownList ID="ddlUpdResp" runat="server" />
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
+                                    <asp:TemplateField HeaderStyle-CssClass="hdr-aad" ItemStyle-CssClass="col-aad">
+                                        <HeaderTemplate>
+                                            Storage : Cell <button type="button" class="upd-unlock" data-col="cell" onclick="return updToggle(this);" title="เปิด / ปิด การแก้ไขคอลัมน์นี้">✏️</button>
+                                        </HeaderTemplate>
+                                        <ItemTemplate>
+                                            <asp:DropDownList ID="ddlUpdCell" runat="server" />
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
+                                    <asp:TemplateField HeaderStyle-CssClass="hdr-aad" ItemStyle-CssClass="col-aad">
+                                        <HeaderTemplate>
+                                            Storage : Station <button type="button" class="upd-unlock" data-col="station" onclick="return updToggle(this);" title="เปิด / ปิด การแก้ไขคอลัมน์นี้">✏️</button>
+                                        </HeaderTemplate>
+                                        <ItemTemplate>
+                                            <asp:DropDownList ID="ddlUpdStation" runat="server" />
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
+                                </Columns>
+                            </asp:GridView>
+                        </div>
+
+                        <div class="wcf-notice">
+                            เมื่อยืนยัน ระบบจะ <b>Update ข้อมูลอุปกรณ์จริง</b> ทุกรายการ (Dept / Cell / Station / Status / ผู้รับผิดชอบ · Cell / Station ที่กรอกใหม่จะถูกสร้างใน Master)
+                            , บันทึกค่าสุดท้ายลง Storage_List / History_Change_Location และเปลี่ยนเอกสารเป็น <b>Completed (100)</b> — ย้อนกลับไม่ได้
+                        </div>
+                    </div>
+
+                    <div class="wcf-foot">
+                        <button type="button" class="btn btn-secondary" style="text-shadow:none;" onclick="closeUpdateModal();">ปิด</button>
+                        <asp:LinkButton ID="btnUpdateOk" runat="server" CssClass="btn btn-success" Style="text-shadow:none;"
+                            OnClick="btnUpdateOk_Click" OnClientClick="return updConfirm();">
+                            <span class="glyphicon glyphicon-refresh"></span> ยืนยัน Update ข้อมูล
                         </asp:LinkButton>
                     </div>
                 </div>

@@ -350,6 +350,8 @@
         .aps .act-approve:hover { background: var(--approve-h); color: #fff; }
         .aps .act-return  { background: var(--return); }
         .aps .act-return:hover  { background: var(--return-h); color: #fff; }
+        .aps .act-update { background:#2980b9; color:#fff; }
+        .aps .act-update:hover { background:#1f6a9a; color:#fff; }
         .aps .act-view { background: var(--surface); color: var(--ink-2); border-color: #c9d2dc; }
         .aps .act-view:hover { background: var(--paper); color: var(--ink); border-color: #9aa8b6; text-decoration: none; }
 
@@ -637,6 +639,11 @@
                                             <asp:Button ID="btnReturn" runat="server" Text="รับคืน"
                                                 CommandName="ReturnRow" CommandArgument='<%# Eval("Doc_No") %>'
                                                 CssClass="act-btn act-return" />
+
+                                            <%-- Wait Update (99) : เบิก / จัดเก็บ → เปิดหน้า Update --%>
+                                            <asp:Button ID="btnUpdate" runat="server" Text="Update"
+                                                CommandName="UpdateRow" CommandArgument='<%# Eval("Doc_No") %>'
+                                                CssClass="act-btn act-update" Visible="false" />
 
                                             <asp:HyperLink ID="btnView" runat="server" Text="เปิดดู" Target="_blank"
                                                 CssClass="act-btn act-view" Visible="false" />

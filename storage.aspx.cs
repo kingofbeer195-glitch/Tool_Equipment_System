@@ -129,6 +129,12 @@ namespace Tool_Equipment_Control_System
                     {
                         SetViewMode(status_id);
                     }
+                    else if (mode == "update")
+                    {
+                        // Wait Update (99) : หน้าแบบ View + เปิด Modal Update อัตโนมัติ
+                        SetViewMode(status_id);
+                        SetUpdateMode(Doc_NO, status_id);
+                    }
                     else if (mode == "confirm")
                     {
                         SetConfirmMode(status_id);
@@ -5224,5 +5230,501 @@ namespace Tool_Equipment_Control_System
             //Requester_getdata_edit();
         }
 
+        #region --- Wait Update (99) : Modal Update → Update ข้อมูลจริง → 100 Completed ---
+        //   เข้าจาก ApproveStatus (ปุ่ม Update) : storage.aspx?k=..&mode=update
+        //   ทุกช่องปิดไว้ (ดูได้อย่างเดียว) — กด ✏️ ที่หัวคอลัมน์เพื่อเปิดแก้ทีละคอลัมน์
+        //   ยืนยัน → (1) Storage_List / History_Change_Location = ค่าสุดท้าย (2) Update อุปกรณ์จริง (3) เอกสาร → 100 — tx เดียว
+
+        private const int UPD_LOCATION1_ID = 97;          // Cell / Station ที่สร้างใหม่ (เหมือน EditLocation)
+        private DataTable _uStatusM, _uRespM, _uDeptM, _uModelM, _uCellM, _uStationM;
+
+        private bool IsUpdateAllowed()
+        {
+            return Session["admin"] != null && Session["admin"].ToString().Trim() == "99";
+        }
+
+        private void SetUpdateMode(string Doc_No, string status_id)
+        {
+            lb_mode.Text = "Mode : Update";
+            if (status_id != "99")
+            {
+                alert_toast("เอกสารนี้ไม่ได้อยู่ในสถานะ Wait Update (99) — แสดงแบบดูอย่างเดียว", "ไม่สามารถ Update ได้", "warn", "8000");
+                return;
+            }
+            if (!IsUpdateAllowed())
+            {
+                alert_toast("ไม่มีสิทธิ์ Update (Admin เท่านั้น)", "Permission Denied", "error", "8000");
+                return;
+            }
+            BuildUpdateModal(Doc_No);
+            ReopenUpdateModal();
+        }
+
+        private void ReopenUpdateModal()
+        {
+            ScriptManager.RegisterStartupScript(this, GetType(), "reopenUpdate",
+                "document.getElementById('" + pnlUpdateModal.ClientID + "').style.display='flex'; if(window.updRestoreLocks) updRestoreLocks();", true);
+        }
+
+        private DataTable UQ(string sql, params SqlParameter[] ps)
+        {
+            dc.QryDT_P(conn, sql, ps);
+            return dc.dt == null ? new DataTable() : dc.dt.Copy();
+        }
+
+        private DataTable UStatusM { get { return _uStatusM ?? (_uStatusM = UQ("SELECT CAST(status_id AS nvarchar(20)) AS id, LTRIM(RTRIM(status_name)) AS name FROM tool_equipment_status ORDER BY status_id")); } }
+        private DataTable URespM { get { return _uRespM ?? (_uRespM = UQ("SELECT LTRIM(RTRIM(emp_id)) AS emp_id, LTRIM(RTRIM(ISNULL(pic_dept, ''))) AS pic_dept, LTRIM(RTRIM(CAST(dept_code AS nvarchar(20)))) AS dept_code FROM Responsible_Dept WHERE emp_id IS NOT NULL AND LTRIM(RTRIM(emp_id)) <> '' ORDER BY dept_code, emp_id")); } }
+        private DataTable UDeptM { get { return _uDeptM ?? (_uDeptM = UQ("SELECT LTRIM(RTRIM(dept_code)) AS id, LTRIM(RTRIM(dept_code)) + ' : ' + ISNULL(dept_name2, '') AS name FROM View_dept_master WHERE division = 2 ORDER BY dept_code")); } }
+        private DataTable UModelM { get { return _uModelM ?? (_uModelM = UQ("SELECT CAST(model_id AS nvarchar(20)) AS id, LTRIM(RTRIM(model_name)) AS name FROM jig_tool_system.dbo.draw_master_model WHERE model_check = 1 ORDER BY model_name")); } }
+        private DataTable UCellM { get { return _uCellM ?? (_uCellM = UQ("SELECT CAST(location2_id AS nvarchar(20)) AS id, LTRIM(RTRIM(location2_name)) AS name FROM jig_tool_system.dbo.master_location2 WHERE is_use = 1 AND location1_id = 97 AND location2_id != 0 ORDER BY location2_name")); } }
+        private DataTable UStationM { get { return _uStationM ?? (_uStationM = UQ("SELECT CAST(location3_id AS nvarchar(20)) AS id, LTRIM(RTRIM(location3_name)) AS name FROM jig_tool_system.dbo.master_location3 WHERE location1_id = 97 AND location3_id != 0 ORDER BY location3_name")); } }
+
+        private static string UName(DataTable m, string id)
+        {
+            if (m == null || string.IsNullOrEmpty(id)) return "";
+            foreach (DataRow r in m.Rows) if (Convert.ToString(r["id"]).Trim() == id.Trim()) return Convert.ToString(r["name"]).Trim();
+            return "";
+        }
+
+        private string URespText(string empId)
+        {
+            if (string.IsNullOrEmpty(empId)) return "";
+            foreach (DataRow r in URespM.Rows)
+                if (Convert.ToString(r["emp_id"]) == empId.Trim())
+                    return Convert.ToString(r["pic_dept"]) == "" ? empId : r["pic_dept"] + " (" + empId + ")";
+            return empId;
+        }
+
+        /// <summary>ค่า Location/Model : "id" = เลือกจาก Master · "txt:ชื่อ" = กรอกใหม่ (สร้าง Master ตอน Update)</summary>
+        private static string LocVal(string hd, string id, string txt)
+        {
+            return hd == "txt" ? (string.IsNullOrEmpty(txt) ? "" : "txt:" + txt) : (id ?? "");
+        }
+
+        private void BuildUpdateModal(string Doc_No)
+        {
+            DataTable src = UQ(
+                "SELECT L.tool_id, L.sub_id, L.system_id, L.FixAsset, L.ControlNo, B.tool_no," +
+                "       L.Use_Dept, L.Use_Model_Id, L.New_Model, L.HD_Model," +
+                "       L.Use_Cell_Id, L.New_Cell, L.HD_Cell, L.Use_Station_Id, L.New_Station, L.HD_Station," +
+                "       L.Old_Status_Id, L.New_Status_Id, L.Old_Responsible, L.New_Responsible," +
+                "       H.Old_DeptCode, H.Old_Model_Name, H.Old_Cell_Name, H.Old_Station_Name," +
+                "       B.dept_code AS cur_dept, B.model_name AS cur_model, B.model_id AS cur_model_id, B.cell AS cur_cell, B.station AS cur_station" +
+                " FROM Storage_List L" +
+                " LEFT JOIN Tool_Equipment_List_View B ON L.tool_id = B.tool_id AND L.sub_id = B.sub_no AND L.system_id = B.sys_status" +
+                " OUTER APPLY (SELECT TOP 1 * FROM History_Change_Location X" +
+                "              WHERE X.Doc_No = L.Doc_No AND X.Tool_id = CAST(L.tool_id AS nvarchar(50))" +
+                "                AND X.Tool_sub = CAST(L.sub_id AS nvarchar(50)) AND X.System_id = CAST(L.system_id AS nvarchar(10))" +
+                "              ORDER BY X.History_id DESC) H" +
+                " WHERE L.Doc_No = @doc ORDER BY L.No",
+                new SqlParameter("@doc", SqlDbType.NVarChar) { Value = Doc_No });
+
+            var dt = new DataTable();
+            foreach (string c in new[] { "RowKey", "FixAssetNo", "ControlNo", "ToolNo",
+                                         "OldDept", "OldModel", "OldCell", "OldStation", "OldStatus", "OldResp",
+                                         "St", "Rp", "Dept", "Model", "Cell", "Station", "ModelKeep" })
+                dt.Columns.Add(c, typeof(string));
+            dt.Columns.Add("RowNo", typeof(int));
+
+            int no = 1;
+            foreach (DataRow r in src.Rows)
+            {
+                Func<string, string> v = col => r[col] == DBNull.Value ? "" : Convert.ToString(r[col]).Trim();
+                DataRow n = dt.NewRow();
+                n["RowNo"] = no++;
+                n["RowKey"] = v("tool_id") + "|" + v("sub_id") + "|" + v("system_id");
+                n["FixAssetNo"] = v("FixAsset");
+                n["ControlNo"] = v("ControlNo");
+                n["ToolNo"] = v("tool_no");
+
+                // Current = ณ ตอน AAD Confirm (History) — ไม่มีประวัติ = ข้อมูลปัจจุบัน
+                n["OldDept"] = v("Old_DeptCode") != "" ? v("Old_DeptCode") : v("cur_dept");
+                n["OldModel"] = v("Old_Model_Name") != "" ? v("Old_Model_Name") : v("cur_model");
+                n["OldCell"] = v("Old_Cell_Name") != "" ? v("Old_Cell_Name") : v("cur_cell");
+                n["OldStation"] = v("Old_Station_Name") != "" ? v("Old_Station_Name") : v("cur_station");
+                n["OldStatus"] = UName(UStatusM, v("Old_Status_Id"));
+                n["OldResp"] = URespText(v("Old_Responsible"));
+
+                n["St"] = v("New_Status_Id");
+                n["Rp"] = v("New_Responsible");
+                n["Dept"] = "5505";
+                n["Model"] = LocVal(v("HD_Model"), v("Use_Model_Id"), v("New_Model"));
+                n["ModelKeep"] = v("cur_model_id");
+                n["Cell"] = LocVal(v("HD_Cell"), v("Use_Cell_Id"), v("New_Cell"));
+                n["Station"] = LocVal(v("HD_Station"), v("Use_Station_Id"), v("New_Station"));
+                dt.Rows.Add(n);
+            }
+
+            ViewState["UPD_DT"] = dt;
+            litUpdDoc.Text = Server.HtmlEncode(Doc_No);
+            litUpdSummary.Text = "<div class='wcf-summary'><b>สรุป :</b><span class='wcf-badge wcf-ok'>✓ จัดเก็บอุปกรณ์ " + dt.Rows.Count + " รายการ</span>" +
+                                 "<span class='wcf-badge upd-badge-lock'>🔒 ทุกช่องปิดไว้ — กด ✏️ ที่หัวคอลัมน์เพื่อแก้ไข</span></div>";
+
+            gvUpdate.DataSource = dt;
+            gvUpdate.DataBind();
+            if (gvUpdate.HeaderRow != null) gvUpdate.HeaderRow.TableSection = TableRowSection.TableHeader;
+        }
+
+        private static void UFill(DropDownList d, DataTable m, string current, string firstText, Func<string, string> txtLabel)
+        {
+            d.Items.Clear();
+            d.Items.Add(new ListItem(firstText, ""));
+            foreach (DataRow r in m.Rows)
+                d.Items.Add(new ListItem(Convert.ToString(r["name"]), Convert.ToString(r["id"]).Trim()));
+            current = current ?? "";
+            if (current != "" && d.Items.FindByValue(current) == null)
+            {
+                string label = current.StartsWith("txt:") ? txtLabel(current.Substring(4)) : current;
+                d.Items.Insert(1, new ListItem(label, current));
+            }
+            d.SelectedValue = current;
+        }
+
+        protected void gvUpdate_RowDataBound(object sender, GridViewRowEventArgs e)
+        {
+            if (e.Row.RowType != DataControlRowType.DataRow) return;
+            DataRowView drv = (DataRowView)e.Row.DataItem;
+            Func<string, string> newLbl = s => s + " (ใหม่)";
+
+            var st = e.Row.FindControl("ddlUpdStatus") as DropDownList;
+            if (st != null) UFill(st, UStatusM, Convert.ToString(drv["St"]), "-- Select --", newLbl);
+
+            var rp = e.Row.FindControl("ddlUpdResp") as DropDownList;
+            if (rp != null)
+            {
+                // ผู้รับผิดชอบของ Dept ปลายทางขึ้นก่อน แล้วตามด้วยทุกคน
+                string d = "5505";
+                var m = new DataTable(); m.Columns.Add("id"); m.Columns.Add("name");
+                var seen = new HashSet<string>();
+                foreach (bool first in new[] { true, false })
+                    foreach (DataRow r in URespM.Rows)
+                    {
+                        string id = Convert.ToString(r["emp_id"]);
+                        if ((Convert.ToString(r["dept_code"]) == d) != first || seen.Contains(id)) continue;
+                        seen.Add(id);
+                        string nm = Convert.ToString(r["pic_dept"]);
+                        m.Rows.Add(id, (first ? "⭐ " : "") + (nm == "" ? id : nm + " (" + id + ")") + " · " + Convert.ToString(r["dept_code"]));
+                    }
+                UFill(rp, m, Convert.ToString(drv["Rp"]), "-- เลือกผู้รับผิดชอบ --", newLbl);
+            }
+
+            var dp = e.Row.FindControl("ddlUpdDept") as DropDownList;
+            if (dp != null) UFill(dp, UDeptM, Convert.ToString(drv["Dept"]), "-- Dept --", newLbl);
+            var md = e.Row.FindControl("ddlUpdModel") as DropDownList;
+            if (md != null) UFill(md, UModelM, Convert.ToString(drv["Model"]), "-- Model --", newLbl);
+            var ce = e.Row.FindControl("ddlUpdCell") as DropDownList;
+            if (ce != null) UFill(ce, UCellM, Convert.ToString(drv["Cell"]), "-- Cell --", newLbl);
+            var sa = e.Row.FindControl("ddlUpdStation") as DropDownList;
+            if (sa != null) UFill(sa, UStationM, Convert.ToString(drv["Station"]), "-- Station --", newLbl);
+
+            foreach (var pair in new[] { Tuple.Create(st, "st"), Tuple.Create(rp, "rp"), Tuple.Create(dp, "dept"),
+                                         Tuple.Create(md, "model"), Tuple.Create(ce, "cell"), Tuple.Create(sa, "station") })
+            {
+                if (pair.Item1 == null) continue;
+                pair.Item1.CssClass = "form-control upd-ctl upd-locked";
+                pair.Item1.Attributes["data-col"] = pair.Item2;
+                pair.Item1.Attributes["data-orig"] = pair.Item1.SelectedValue;
+                pair.Item1.Attributes["tabindex"] = "-1";
+            }
+        }
+
+        private class UpdRow
+        {
+            public string Tid, Sid, Sys, Fix, Ctrl;
+            public string St, Rp, Dept, Model, Cell, Station, ModelKeep;
+            public bool Changed;
+        }
+
+        protected void btnUpdateOk_Click(object sender, EventArgs e)
+        {
+            string Doc_No = litIssueNo.Text.Trim();
+            if (!IsUpdateAllowed())
+            {
+                alert_toast("ไม่มีสิทธิ์ Update (Admin เท่านั้น)", "Permission Denied", "error", "8000");
+                return;
+            }
+
+            DataTable dt = ViewState["UPD_DT"] as DataTable;
+            if (dt == null) { alert_toast("ไม่พบข้อมูล Update กรุณาเปิดหน้าใหม่", "Error", "error", "8000"); return; }
+
+            // ── อ่านค่าจาก Modal ──
+            var rows = new List<UpdRow>();
+            var msgs = new List<string>();
+            int no = 0;
+            foreach (GridViewRow gr in gvUpdate.Rows)
+            {
+                if (gr.RowType != DataControlRowType.DataRow) continue;
+                no++;
+                var hf = gr.FindControl("hfUpdKey") as HiddenField;
+                if (hf == null) continue;
+                DataRow src = dt.Rows.Cast<DataRow>().FirstOrDefault(x => Convert.ToString(x["RowKey"]) == hf.Value);
+                if (src == null) continue;
+
+                Func<string, string, string> get = (id, orig) =>
+                {
+                    var d = gr.FindControl(id) as DropDownList;
+                    return d == null ? orig : d.SelectedValue;
+                };
+                string[] k = hf.Value.Split('|');
+                var u = new UpdRow
+                {
+                    Tid = k[0], Sid = k[1], Sys = k[2],
+                    Fix = Convert.ToString(src["FixAssetNo"]), Ctrl = Convert.ToString(src["ControlNo"]),
+                    St = get("ddlUpdStatus", Convert.ToString(src["St"])),
+                    Rp = get("ddlUpdResp", Convert.ToString(src["Rp"])),
+                    Dept = get("ddlUpdDept", Convert.ToString(src["Dept"])),
+                    Model = get("ddlUpdModel", Convert.ToString(src["Model"])),
+                    Cell = get("ddlUpdCell", Convert.ToString(src["Cell"])),
+                    Station = get("ddlUpdStation", Convert.ToString(src["Station"])),
+                    ModelKeep = Convert.ToString(src["ModelKeep"])
+                };
+                u.Changed = u.St != Convert.ToString(src["St"]) || u.Rp != Convert.ToString(src["Rp"]) || u.Dept != Convert.ToString(src["Dept"]) ||
+                            u.Model != Convert.ToString(src["Model"]) || u.Cell != Convert.ToString(src["Cell"]) || u.Station != Convert.ToString(src["Station"]);
+
+                var miss = new List<string>();
+                if (u.St == "") miss.Add("Status Use");
+                if (u.Rp == "") miss.Add("ผู้รับผิดชอบ");
+                if (u.Dept == "") miss.Add("Dept");
+                if (u.Cell == "") miss.Add("Cell");
+                if (u.Station == "") miss.Add("Station");
+                if (miss.Count > 0) msgs.Add("• รายการที่ " + no + (u.Fix != "" ? " (" + u.Fix + ")" : "") + " : ไม่มี " + string.Join(" / ", miss.ToArray()));
+                rows.Add(u);
+            }
+            if (rows.Count == 0) { alert_toast("ไม่พบรายการใน Modal", "Error", "error", "8000"); ReopenUpdateModal(); return; }
+            if (msgs.Count > 0)
+            {
+                alert_toast("ข้อมูลไม่ครบ (เปิดแก้ไขคอลัมน์แล้วเลือกให้ครบ) :\n" + string.Join("\n", msgs.ToArray()), "ข้อมูล Update ไม่ครบ", "warn", "15000");
+                ReopenUpdateModal();
+                return;
+            }
+
+            string empId = Session["emp_id"] != null ? Session["emp_id"].ToString().Trim() : "";
+            string err = null;
+            int nChanged = rows.Count(x => x.Changed);
+
+            using (var c = new SqlConnection(ConfigurationManager.ConnectionStrings["tool_equipment"].ConnectionString))
+            {
+                c.Open();
+                using (var tx = c.BeginTransaction())
+                {
+                    try
+                    {
+                        // ── เอกสารต้องยังเป็น 99 (กันกดซ้ำ / มีคน Update ไปแล้ว) ──
+                        using (var cmd = new SqlCommand("UPDATE Storage_Control_List SET status_id = 100, update_date = GETDATE() WHERE Doc_No = @doc AND status_id = 99", c, tx))
+                        {
+                            cmd.Parameters.AddWithValue("@doc", Doc_No);
+                            if (cmd.ExecuteNonQuery() == 0)
+                                throw new InvalidOperationException("เอกสารไม่ได้อยู่ในสถานะ Wait Update (99) แล้ว — อาจถูก Update ไปแล้ว");
+                        }
+
+                        foreach (UpdRow u in rows)
+                            ApplyUpdateRow_Tx(c, tx, Doc_No, u, empId);
+
+                        using (var cmd = new SqlCommand("UPDATE Storage_List SET status_id = 100 WHERE Doc_No = @doc", c, tx))
+                        {
+                            cmd.Parameters.AddWithValue("@doc", Doc_No);
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        tx.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        try { tx.Rollback(); } catch { }
+                        err = ex.Message;
+                    }
+                }
+            }
+
+            if (err != null)
+            {
+                alert_toast("Update ไม่สำเร็จ : " + err, "Error", "error", "12000");
+                ReopenUpdateModal();
+                return;
+            }
+
+            string jsDoc = HttpUtility.JavaScriptStringEncode(Doc_No);
+            string info = HttpUtility.JavaScriptStringEncode("Update Complete" + (nChanged > 0 ? " (แก้ไข " + nChanged + " รายการ)" : ""));
+            ScriptManager.RegisterStartupScript(this, GetType(), "redirectScript",
+                "var m=document.getElementById('" + pnlUpdateModal.ClientID + "'); if(m) m.style.display='none';" +
+                "if (typeof showToast === 'function') showToast('Doc No : " + jsDoc + "', { title: '" + info + "', type: 'success', duration: 2000 });" +
+                "setTimeout(function () { window.location.href = 'ApproveStatus.aspx'; }, 2000);", true);
+        }
+
+        /// <summary>1 รายการ : resolve Dept / Model / Cell / Station (สร้าง Master ถ้ากรอกใหม่) → Storage_List + History → อุปกรณ์จริง</summary>
+        private void ApplyUpdateRow_Tx(SqlConnection c, SqlTransaction tx, string Doc_No, UpdRow u, string empId)
+        {
+            // Dept → dept_id / division
+            string deptId = null; int division = 0;
+            using (var cmd = new SqlCommand("SELECT dept_id, division FROM tool_eduipment_system.dbo.View_dept_master WHERE dept_code = @code", c, tx))
+            {
+                cmd.Parameters.AddWithValue("@code", u.Dept);
+                using (var rd = cmd.ExecuteReader())
+                    if (rd.Read())
+                    {
+                        deptId = Convert.ToString(rd["dept_id"]);
+                        division = rd["division"] == DBNull.Value ? 0 : Convert.ToInt32(rd["division"]);
+                    }
+            }
+            if (deptId == null) throw new InvalidOperationException("ไม่พบ Dept " + u.Dept + " ใน View_dept_master (" + u.Ctrl + ")");
+
+            // Model / Cell / Station
+            bool mTxt = u.Model.StartsWith("txt:"), cTxt = u.Cell.StartsWith("txt:"), sTxt = u.Station.StartsWith("txt:");
+            string mName = mTxt ? u.Model.Substring(4) : "", cName = cTxt ? u.Cell.Substring(4) : "", sName = sTxt ? u.Station.Substring(4) : "";
+            int modelId = string.IsNullOrEmpty(u.ModelKeep) ? 0 : Convert.ToInt32(u.ModelKeep);
+            int cellId = cTxt ? UGetOrCreateCell_Tx(c, tx, cName) : Convert.ToInt32(u.Cell);
+            int stationId = sTxt ? UGetOrCreateStation_Tx(c, tx, sName, cellId) : Convert.ToInt32(u.Station);
+            int statusId = Convert.ToInt32(u.St);
+
+            // (1) Storage_List : ค่าสุดท้าย (แก้ใน Modal หรือไม่ก็ได้)
+            using (var cmd = new SqlCommand(
+                "UPDATE Storage_List SET Use_Dept = @dept," +
+                " Use_Cell_Id = @cellId, New_Cell = @cellTxt, HD_Cell = @hdCell," +
+                " Use_Station_Id = @staId, New_Station = @staTxt, HD_Station = @hdSta," +
+                " New_Status_Id = @st, New_Responsible = @rp" +
+                " WHERE Doc_No = @doc AND tool_id = @tid AND sub_id = @sid AND system_id = @sys", c, tx))
+            {
+                cmd.Parameters.AddWithValue("@dept", u.Dept);
+                cmd.Parameters.AddWithValue("@modelId", modelId);
+                cmd.Parameters.AddWithValue("@modelTxt", mTxt ? (object)mName : DBNull.Value);
+                cmd.Parameters.AddWithValue("@hdModel", mTxt ? "txt" : "ddl");
+                cmd.Parameters.AddWithValue("@cellId", cellId);
+                cmd.Parameters.AddWithValue("@cellTxt", cTxt ? (object)cName : DBNull.Value);
+                cmd.Parameters.AddWithValue("@hdCell", cTxt ? "txt" : "ddl");
+                cmd.Parameters.AddWithValue("@staId", stationId);
+                cmd.Parameters.AddWithValue("@staTxt", sTxt ? (object)sName : DBNull.Value);
+                cmd.Parameters.AddWithValue("@hdSta", sTxt ? "txt" : "ddl");
+                cmd.Parameters.AddWithValue("@st", statusId);
+                cmd.Parameters.AddWithValue("@rp", u.Rp);
+                cmd.Parameters.AddWithValue("@doc", Doc_No);
+                cmd.Parameters.AddWithValue("@tid", u.Tid);
+                cmd.Parameters.AddWithValue("@sid", u.Sid);
+                cmd.Parameters.AddWithValue("@sys", u.Sys);
+                if (cmd.ExecuteNonQuery() == 0) throw new InvalidOperationException("ไม่พบรายการ " + u.Ctrl + " ใน Storage_List");
+            }
+
+            // (2) History_Change_Location : New_* = ค่าสุดท้าย (+ ID ของ Master ที่เพิ่งสร้าง)
+            using (var cmd = new SqlCommand(
+                "UPDATE H SET H.New_DeptCode = @dept, H.New_Status_Id = @st," +
+                "  H.New_Responsible = CASE WHEN ISNULL(R.pic_dept, '') = '' THEN @rp ELSE @rp + ' - ' + R.pic_dept END," +
+                "  H.New_Cell_Id = @cellId, H.New_Cell_Text = ISNULL(L2.location2_name, @cellTxt), H.HD_Cell = @hdCell," +
+                "  H.New_Station_Id = @staId, H.New_Station_Text = ISNULL(L3.location3_name, @staTxt), H.HD_Station = @hdSta," +
+                "  H.Remark = LEFT(ISNULL(H.Remark, '') + CASE WHEN @chg = 1 THEN ' · แก้ไขตอน Update โดย ' + @by ELSE '' END, 500)" +
+                " FROM History_Change_Location H" +
+                " OUTER APPLY (SELECT TOP 1 pic_dept FROM Responsible_Dept WHERE LTRIM(RTRIM(emp_id)) = @rp) R" +
+                " OUTER APPLY (SELECT TOP 1 location2_name FROM jig_tool_system.dbo.master_location2 WHERE location1_id = 97 AND location2_id = @cellId) L2" +
+                " OUTER APPLY (SELECT TOP 1 location3_name FROM jig_tool_system.dbo.master_location3 WHERE location1_id = 97 AND location3_id = @staId) L3" +
+                " WHERE H.Doc_No = @doc AND H.Tool_id = @tid AND H.Tool_sub = @sid AND H.System_id = @sys", c, tx))
+            {
+                cmd.Parameters.AddWithValue("@dept", u.Dept);
+                cmd.Parameters.AddWithValue("@st", statusId);
+                cmd.Parameters.AddWithValue("@rp", u.Rp);
+                cmd.Parameters.AddWithValue("@modelId", modelId);
+                cmd.Parameters.AddWithValue("@modelTxt", mTxt ? (object)mName : DBNull.Value);
+                cmd.Parameters.AddWithValue("@hdModel", mTxt ? "txt" : "ddl");
+                cmd.Parameters.AddWithValue("@cellId", cellId);
+                cmd.Parameters.AddWithValue("@cellTxt", cTxt ? (object)cName : DBNull.Value);
+                cmd.Parameters.AddWithValue("@hdCell", cTxt ? "txt" : "ddl");
+                cmd.Parameters.AddWithValue("@staId", stationId);
+                cmd.Parameters.AddWithValue("@staTxt", sTxt ? (object)sName : DBNull.Value);
+                cmd.Parameters.AddWithValue("@hdSta", sTxt ? "txt" : "ddl");
+                cmd.Parameters.AddWithValue("@chg", u.Changed ? 1 : 0);
+                cmd.Parameters.AddWithValue("@by", empId);
+                cmd.Parameters.AddWithValue("@doc", Doc_No);
+                cmd.Parameters.AddWithValue("@tid", u.Tid);
+                cmd.Parameters.AddWithValue("@sid", u.Sid);
+                cmd.Parameters.AddWithValue("@sys", u.Sys);
+                cmd.ExecuteNonQuery();   // เอกสารเก่าที่ไม่มีประวัติ = 0 แถว (ไม่ถือเป็น error)
+            }
+
+            // (3) Update อุปกรณ์จริง (เหมือน EditLocation)
+            string sql;
+            if (u.Sys == "1")
+                sql = "UPDATE jig_tool_system.dbo.toolSub_list SET dept_code = @DeptId, division = @Division, rsp_empID = @RespId," +
+                      " location2_id = @CellId, location3_id = @StationId, status_id = @StatusId" +
+                      " WHERE tool_id = @ToolId AND toolSub_id = @ToolSub";
+            else if (u.Sys == "2")
+                sql = "UPDATE tool_eduipment_system.dbo.Equipment_sub_id SET dept_code = @DeptId, division = @Division, rsp_empID = @RespId," +
+                      " cell_id = @CellId, station_id = @StationId, status_use = @StatusId" +
+                      " WHERE Equipment_id = @ToolId AND Equipment_sub_id = @ToolSub";
+            else
+                throw new InvalidOperationException("SystemId ไม่ถูกต้อง (" + u.Sys + ") : " + u.Ctrl);
+
+            using (var cmd = new SqlCommand(sql, c, tx))
+            {
+                cmd.Parameters.AddWithValue("@DeptId", deptId);
+                cmd.Parameters.AddWithValue("@Division", division);
+                cmd.Parameters.AddWithValue("@RespId", u.Rp);
+                cmd.Parameters.AddWithValue("@ModelId", modelId);
+                cmd.Parameters.AddWithValue("@CellId", cellId);
+                cmd.Parameters.AddWithValue("@StationId", stationId);
+                cmd.Parameters.AddWithValue("@StatusId", statusId);
+                cmd.Parameters.AddWithValue("@ToolId", u.Tid);
+                cmd.Parameters.AddWithValue("@ToolSub", u.Sid);
+                if (cmd.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException("ไม่พบอุปกรณ์ " + u.Ctrl + " (Update ไม่สำเร็จ)");
+            }
+        }
+
+        // ── หา / เพิ่ม Master (WITH UPDLOCK, HOLDLOCK กันชื่อซ้ำพร้อมกัน — เหมือน EditLocation) ──
+        private int UGetOrCreateModel_Tx(SqlConnection c, SqlTransaction tx, string name)
+        {
+            using (var cmd = new SqlCommand("SELECT TOP 1 model_id FROM jig_tool_system.dbo.draw_master_model WITH (UPDLOCK, HOLDLOCK) WHERE model_name = @n", c, tx))
+            {
+                cmd.Parameters.AddWithValue("@n", name);
+                object o = cmd.ExecuteScalar();
+                if (o != null && o != DBNull.Value)
+                {
+                    using (var up = new SqlCommand("UPDATE jig_tool_system.dbo.draw_master_model SET model_check = 1 WHERE model_id = @id AND ISNULL(model_check, 0) = 0", c, tx))
+                    { up.Parameters.AddWithValue("@id", Convert.ToInt32(o)); up.ExecuteNonQuery(); }
+                    return Convert.ToInt32(o);
+                }
+            }
+            int id;
+            using (var cmd = new SqlCommand("SELECT ISNULL(MAX(model_id), 0) + 1 FROM jig_tool_system.dbo.draw_master_model WITH (UPDLOCK, HOLDLOCK)", c, tx))
+                id = Convert.ToInt32(cmd.ExecuteScalar());
+            using (var cmd = new SqlCommand("INSERT INTO jig_tool_system.dbo.draw_master_model (model_id, model_name, model_check) VALUES (@id, @n, 1)", c, tx))
+            { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@n", name); cmd.ExecuteNonQuery(); }
+            return id;
+        }
+
+        private int UGetOrCreateCell_Tx(SqlConnection c, SqlTransaction tx, string name)
+        {
+            using (var cmd = new SqlCommand("SELECT TOP 1 location2_id FROM jig_tool_system.dbo.master_location2 WITH (UPDLOCK, HOLDLOCK) WHERE location1_id = @l1 AND location2_name = @n", c, tx))
+            {
+                cmd.Parameters.AddWithValue("@l1", UPD_LOCATION1_ID); cmd.Parameters.AddWithValue("@n", name);
+                object o = cmd.ExecuteScalar();
+                if (o != null && o != DBNull.Value)
+                {
+                    using (var up = new SqlCommand("UPDATE jig_tool_system.dbo.master_location2 SET is_use = 1 WHERE location1_id = @l1 AND location2_id = @id AND ISNULL(is_use, 0) = 0", c, tx))
+                    { up.Parameters.AddWithValue("@l1", UPD_LOCATION1_ID); up.Parameters.AddWithValue("@id", Convert.ToInt32(o)); up.ExecuteNonQuery(); }
+                    return Convert.ToInt32(o);
+                }
+            }
+            int id;
+            using (var cmd = new SqlCommand("SELECT ISNULL(MAX(location2_id), 0) + 1 FROM jig_tool_system.dbo.master_location2 WITH (UPDLOCK, HOLDLOCK) WHERE location1_id = @l1", c, tx))
+            { cmd.Parameters.AddWithValue("@l1", UPD_LOCATION1_ID); id = Convert.ToInt32(cmd.ExecuteScalar()); }
+            using (var cmd = new SqlCommand("INSERT INTO jig_tool_system.dbo.master_location2 (location1_id, location2_id, location2_name, is_use) VALUES (@l1, @id, @n, 1)", c, tx))
+            { cmd.Parameters.AddWithValue("@l1", UPD_LOCATION1_ID); cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@n", name); cmd.ExecuteNonQuery(); }
+            return id;
+        }
+
+        private int UGetOrCreateStation_Tx(SqlConnection c, SqlTransaction tx, string name, int cellId)
+        {
+            using (var cmd = new SqlCommand("SELECT TOP 1 location3_id FROM jig_tool_system.dbo.master_location3 WITH (UPDLOCK, HOLDLOCK) WHERE location1_id = @l1 AND location3_name = @n", c, tx))
+            {
+                cmd.Parameters.AddWithValue("@l1", UPD_LOCATION1_ID); cmd.Parameters.AddWithValue("@n", name);
+                object o = cmd.ExecuteScalar();
+                if (o != null && o != DBNull.Value) return Convert.ToInt32(o);
+            }
+            int id;
+            using (var cmd = new SqlCommand("SELECT ISNULL(MAX(location3_id), 0) + 1 FROM jig_tool_system.dbo.master_location3 WITH (UPDLOCK, HOLDLOCK) WHERE location1_id = @l1", c, tx))
+            { cmd.Parameters.AddWithValue("@l1", UPD_LOCATION1_ID); id = Convert.ToInt32(cmd.ExecuteScalar()); }
+            using (var cmd = new SqlCommand("INSERT INTO jig_tool_system.dbo.master_location3 (location1_id, location2_id, location3_id, location3_name) VALUES (@l1, @l2, @id, @n)", c, tx))
+            { cmd.Parameters.AddWithValue("@l1", UPD_LOCATION1_ID); cmd.Parameters.AddWithValue("@l2", cellId); cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@n", name); cmd.ExecuteNonQuery(); }
+            return id;
+        }
+
+        #endregion
     }
 }

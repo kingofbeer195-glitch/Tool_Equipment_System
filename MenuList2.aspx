@@ -1,4 +1,4 @@
-﻿<%@ Page Title="" Language="C#" MasterPageFile="~/Tool_Equipment.Master"
+<%@ Page Title="" Language="C#" MasterPageFile="~/Tool_Equipment.Master"
     AutoEventWireup="true" 
     CodeFile="MenuList2.aspx.cs"
     Inherits="Tool_Equipment_Control_System.MenuList" %>

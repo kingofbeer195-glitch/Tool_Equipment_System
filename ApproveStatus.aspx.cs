@@ -512,6 +512,7 @@ namespace Tool_Equipment_Control_System
                 Button btnConfirm = (Button)e.Row.FindControl("btnConfirm");
                 Button btnApprove = (Button)e.Row.FindControl("btnApprove");
                 Button btnReturn = (Button)e.Row.FindControl("btnReturn");
+                Button btnUpdate = (Button)e.Row.FindControl("btnUpdate");
                 //Button btnView = (Button)e.Row.FindControl("btnView");
                 HyperLink btnView = (HyperLink)e.Row.FindControl("btnView");
                 Label lbNextStatus = (Label)e.Row.FindControl("lb_nextStatus");
@@ -576,10 +577,20 @@ namespace Tool_Equipment_Control_System
                     btnReturn.Visible = false;
                 }
 
+                // ✅ Wait Update (99) : เบิก (AAD3) / จัดเก็บ (AAD4) → ปุ่ม Update (Admin)
+                string docPrefix = Convert.ToString(drv["Doc_No"]).Split('-')[0];
+                if (btnUpdate != null)
+                {
+                    btnUpdate.Visible = status_id == 99 && (docPrefix == "AAD3" || docPrefix == "AAD4") &&
+                                        Session["admin"] != null && Session["admin"].ToString().Trim() == "99";
+                    if (btnUpdate.Visible) { btnConfirm.Visible = false; btnApprove.Visible = false; btnReturn.Visible = false; }
+                }
+
                 // ✅ โหมด All (View Mode) : เหลือแค่ปุ่ม View
                 btnView.Visible = IsAllMode;
                 if (IsAllMode)
                 {
+                    if (btnUpdate != null) btnUpdate.Visible = false;
                     btnConfirm.Visible = false;
                     btnApprove.Visible = false;
                     btnReturn.Visible = false;
@@ -639,6 +650,15 @@ namespace Tool_Equipment_Control_System
                     System.Text.Encoding.UTF8.GetBytes(Doc_No)));
             // ✅ split เอาส่วนหน้า
             string prefix = Doc_No.Contains("-") ? Doc_No.Split('-')[0] : "";
+
+            if (e.CommandName == "UpdateRow")
+            {
+                if (prefix == "AAD3")
+                    Response.Redirect("withdraw2.aspx?k=" + encrypted + "&mode=update");
+                else if (prefix == "AAD4")
+                    Response.Redirect("storage.aspx?k=" + encrypted + "&mode=update");
+                return;
+            }
 
             if (e.CommandName == "ConfirmRow")
             {

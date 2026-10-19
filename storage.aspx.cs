@@ -886,6 +886,13 @@ namespace Tool_Equipment_Control_System
         protected void btnConfirmModalOk_Click(object sender, EventArgs e)
         {
             if (!ValidateAadConfirm()) return;
+
+            // ── อ่าน Status Use / ผู้รับผิดชอบ จาก Modal (ไม่ครบ → เปิด Modal ค้างไว้ พร้อมขอบแดง) ──
+            if (!ReadAndValidateConfirmModal())
+            {
+                ReopenConfirmModal();
+                return;
+            }
             DoAadConfirm();
         }
 
@@ -1033,8 +1040,12 @@ namespace Tool_Equipment_Control_System
             DataTable reasonM = GetReasonMaster().Copy();
             DataTable userM = GetUserMaster();
 
+            EnsureAadCols(src);
+            var ruleCache = new Dictionary<string, DataTable>();
+
             var dt = new DataTable();
-            foreach (string c in new[] { "FixAssetNo", "ControlNo", "ToolNo",
+            foreach (string c in new[] { "RowKey", "StatusId", "RespEmpId", "RuleName", "RuleStatusId", "RuleResp", "RuleRespNames",
+                                         "FixAssetNo", "ControlNo", "ToolNo",
                                          "StatusHtml", "OkNgHtml", "RepairStatus", "ConfirmBy", "ServiceUnit", "ReasonName",
                                          "OldDept", "OldModel", "OldCell", "OldStation",
                                          "NewDept", "NewCell", "NewStation" })
@@ -1085,6 +1096,38 @@ namespace Tool_Equipment_Control_System
                              : ResolveName(cellM, "location2_id", "location2_name", GetVal(r, "Use_CellId"));
                 n["NewStation"] = newSta ? GetVal(r, "Add_Station") + " (ใหม่)"
                              : ResolveName(stationM, "location3_id", "location3_name", GetVal(r, "Use_StationId"));
+
+                // ── Status Use / ผู้รับผิดชอบ : ค่าที่เลือกไว้แล้ว + กฎ Auto Assign (Storage) ──
+                n["RowKey"] = StoRowKey(r);
+                n["StatusId"] = GetVal(r, "Use_StatusId");
+                n["RespEmpId"] = GetVal(r, "Resp_EmpId");
+
+                string cellId = newCell ? "" : GetVal(r, "Use_CellId");
+                string staId = newSta ? "" : GetVal(r, "Use_StationId");
+                string ck = st + "|" + okng + "|" + (isNG ? rs : "") + "|" + GetVal(r, "Reason") + "|" + cellId + "|" + staId;
+                DataTable rule;
+                if (!ruleCache.TryGetValue(ck, out rule))
+                {
+                    rule = ResolveAutoAssignStorage(st, okng, isNG ? rs : "", GetVal(r, "Reason"), cellId, staId);
+                    ruleCache[ck] = rule;
+                }
+                if (rule.Rows.Count > 0)
+                {
+                    var ids = new List<string>();
+                    var names = new List<string>();
+                    foreach (DataRow rr in rule.Rows)
+                    {
+                        string id = GetVal(rr, "emp_id");
+                        if (id == "" || ids.Contains(id)) continue;
+                        ids.Add(id);
+                        string nm = GetVal(rr, "pic_dept");
+                        names.Add(nm == "" ? id : nm + " (" + id + ")");
+                    }
+                    n["RuleName"] = GetVal(rule.Rows[0], "rule_name");
+                    n["RuleStatusId"] = GetVal(rule.Rows[0], "status_use_id");
+                    n["RuleResp"] = string.Join("|", ids.ToArray());
+                    n["RuleRespNames"] = string.Join("|", names.ToArray());
+                }
                 dt.Rows.Add(n);
             }
 
@@ -1099,11 +1142,192 @@ namespace Tool_Equipment_Control_System
                 (nNewLoc > 0 ? Badge("Cell / Station ใหม่ " + nNewLoc, "wcf-new") : "") +
                 "</div>";
 
+            StorageListDT = src;
             gvConfirmSummary.DataSource = dt;
             gvConfirmSummary.DataBind();
             if (gvConfirmSummary.HeaderRow != null)
                 gvConfirmSummary.HeaderRow.TableSection = TableRowSection.TableHeader;   // ให้ CSS thead ทำงาน
         }
+
+        #region --- AAD Confirm : Status Use / ผู้รับผิดชอบ (อ้างอิง withdraw2 + กฎ Auto Assign Storage) ---
+
+        private DataTable _statusUseM, _resp5505;
+        private const string STORAGE_DEPT = "5505";
+
+        private static string StoRowKey(DataRow r)
+        {
+            return Convert.ToString(r["ToolId"]).Trim() + "|" + Convert.ToString(r["ToolSub"]).Trim() + "|" + Convert.ToString(r["SystemId"]).Trim();
+        }
+
+        private static void EnsureAadCols(DataTable dt)
+        {
+            if (!dt.Columns.Contains("Use_StatusId")) dt.Columns.Add("Use_StatusId", typeof(string));
+            if (!dt.Columns.Contains("Resp_EmpId")) dt.Columns.Add("Resp_EmpId", typeof(string));
+        }
+
+        private DataTable GetStatusUseMaster()
+        {
+            if (_statusUseM != null) return _statusUseM;
+            dc.QryDT_P(conn, "SELECT status_id, status_name FROM tool_equipment_status ORDER BY status_id");
+            _statusUseM = dc.dt.Copy();
+            return _statusUseM;
+        }
+
+        /// <summary>ผู้รับผิดชอบของ Dept ที่จัดเก็บ (AAD 5505) จาก Responsible_Dept</summary>
+        private DataTable GetResp5505()
+        {
+            if (_resp5505 != null) return _resp5505;
+            dc.QryDT_P(conn,
+                "SELECT LTRIM(RTRIM(emp_id)) AS emp_id, LTRIM(RTRIM(ISNULL(pic_dept, ''))) AS pic_dept FROM Responsible_Dept" +
+                " WHERE LTRIM(RTRIM(CAST(dept_code AS nvarchar(20)))) = @d AND emp_id IS NOT NULL AND LTRIM(RTRIM(emp_id)) <> ''" +
+                " ORDER BY emp_id",
+                new SqlParameter("@d", SqlDbType.NVarChar) { Value = STORAGE_DEPT });
+            _resp5505 = dc.dt.Copy();
+            return _resp5505;
+        }
+
+        /// <summary>กฎ Auto Assign ของ Storage (หน้า Equipment_Setting → ใช้กับ Storage) → sp_AutoAssign_Resolve_Storage
+        ///          คืน 1 แถวต่อผู้รับผิดชอบ / ไม่ตรงกฎ หรือยังไม่ได้ติดตั้ง SP = ตารางว่าง (AAD เลือกเอง)</summary>
+        private DataTable ResolveAutoAssignStorage(string statusItem, string okng, string repair, string reason, string cellId, string stationId)
+        {
+            var dt = new DataTable();
+            try
+            {
+                string cs = ConfigurationManager.ConnectionStrings["tool_equipment"].ConnectionString;
+                using (var c = new SqlConnection(cs))
+                using (var cmd = new SqlCommand("sp_AutoAssign_Resolve_Storage", c))
+                {
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    Func<string, object> v = s => string.IsNullOrEmpty(s) || s == "-" ? (object)DBNull.Value : s;
+                    cmd.Parameters.AddWithValue("@status_item", v(statusItem));
+                    cmd.Parameters.AddWithValue("@okng", v(okng));
+                    cmd.Parameters.AddWithValue("@repair", v(repair));
+                    cmd.Parameters.AddWithValue("@reason", v(reason));
+                    cmd.Parameters.AddWithValue("@cell_id", v(cellId));
+                    cmd.Parameters.AddWithValue("@station_id", v(stationId));
+                    using (var da = new SqlDataAdapter(cmd)) da.Fill(dt);
+                }
+            }
+            catch (SqlException)
+            {
+                // ยังไม่ได้รัน SQL/Auto_Assign_Rule_Storage.sql → ไม่มีกฎ (AAD เลือกเอง)
+            }
+            return dt;
+        }
+
+        protected void gvConfirmSummary_RowDataBound(object sender, GridViewRowEventArgs e)
+        {
+            if (e.Row.RowType != DataControlRowType.DataRow) return;
+            DataRowView drv = (DataRowView)e.Row.DataItem;
+
+            var ddlSt = e.Row.FindControl("ddlStatusUse") as DropDownList;
+            var ddlRp = e.Row.FindControl("ddlResponsible") as DropDownList;
+            if (ddlSt == null || ddlRp == null) return;
+
+            ddlSt.Items.Clear();
+            ddlRp.Items.Clear();
+
+            // ── Status Use : ค่าที่เลือกไว้แล้ว → กฎ → ว่าง (บังคับเลือก) ──
+            ddlSt.Items.Add(new ListItem("-- Select --", ""));
+            foreach (DataRow m in GetStatusUseMaster().Rows)
+                ddlSt.Items.Add(new ListItem(m["status_name"].ToString().Trim(), m["status_id"].ToString().Trim()));
+
+            string ruleName = Convert.ToString(drv["RuleName"]);
+            string st = Convert.ToString(drv["StatusId"]);
+            if (st == "") st = Convert.ToString(drv["RuleStatusId"]);
+            if (ddlSt.Items.FindByValue(st) != null) ddlSt.SelectedValue = st;
+
+            // ── ผู้รับผิดชอบ : คนตามกฎ (⭐) อยู่บนสุด + รายชื่อ Dept 5505 ต่อท้าย ──
+            ddlRp.Items.Add(new ListItem("-- เลือกผู้รับผิดชอบ --", ""));
+            string[] ruleIds = Convert.ToString(drv["RuleResp"]).Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] ruleNames = Convert.ToString(drv["RuleRespNames"]).Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < ruleIds.Length; i++)
+                ddlRp.Items.Add(new ListItem("⭐ " + (i < ruleNames.Length ? ruleNames[i] : ruleIds[i]) + " — แนะนำ", ruleIds[i]));
+
+            foreach (DataRow m in GetResp5505().Rows)
+            {
+                string id = m["emp_id"].ToString().Trim();
+                string nm = m["pic_dept"].ToString().Trim();
+                if (ddlRp.Items.FindByValue(id) == null)
+                    ddlRp.Items.Add(new ListItem(nm == "" ? id : nm + " (" + id + ")", id));
+            }
+
+            string rp = Convert.ToString(drv["RespEmpId"]);
+            if (rp == "" && ruleIds.Length > 0) rp = ruleIds[0];             // กฎ → คนแรก (Auto)
+            if (rp != "" && ddlRp.Items.FindByValue(rp) == null) ddlRp.Items.Add(new ListItem(rp, rp));
+            ddlRp.SelectedValue = rp;                                       // ไม่มีกฎ = ว่าง (บังคับเลือก)
+
+            ddlSt.CssClass = "form-control aad-ddl" + (ddlSt.SelectedValue == "" ? " aad-ddl-empty" : "");
+            ddlRp.CssClass = "form-control aad-ddl" + (ddlRp.SelectedValue == "" ? " aad-ddl-empty" : "");
+
+            var note = e.Row.FindControl("litRuleNote") as Literal;
+            if (note != null)
+            {
+                if (ruleName != "")
+                    note.Text = "<div class='rule-note hit' title='ตั้งค่าที่ System Setup'>🤖 กฎ : " + Server.HtmlEncode(ruleName) +
+                                (ruleIds.Length > 1 ? " · <b>แนะนำ " + ruleIds.Length + " คน</b> (เลือกคนแรกให้แล้ว)" :
+                                 ruleIds.Length == 1 ? " · เลือกให้อัตโนมัติ" : " · ไม่กำหนดผู้รับผิดชอบ") + "</div>";
+                else
+                    note.Text = "<div class='rule-note'>ไม่ตรงกฎ Auto Assign (Storage) — กรุณาเลือกเอง</div>";
+            }
+        }
+
+        /// <summary>อ่าน Status Use / ผู้รับผิดชอบ จาก Modal ลง StorageListDT + ตรวจครบทุกแถว</summary>
+        private bool ReadAndValidateConfirmModal()
+        {
+            DataTable dt = StorageListDT;
+            EnsureAadCols(dt);
+            var msgs = new List<string>();
+            int no = 0, read = 0;
+
+            foreach (GridViewRow gr in gvConfirmSummary.Rows)
+            {
+                if (gr.RowType != DataControlRowType.DataRow) continue;
+                no++;
+
+                var hf = gr.FindControl("hfCfmKey") as HiddenField;
+                var ddlSt = gr.FindControl("ddlStatusUse") as DropDownList;
+                var ddlRp = gr.FindControl("ddlResponsible") as DropDownList;
+                if (hf == null || ddlSt == null || ddlRp == null) continue;
+
+                DataRow row = null;
+                foreach (DataRow r in dt.Rows)
+                    if (r.RowState != DataRowState.Deleted && GetVal(r, "CompareData") != "Delete" && StoRowKey(r) == hf.Value) { row = r; break; }
+                if (row == null) continue;
+                read++;
+
+                row["Use_StatusId"] = ddlSt.SelectedValue == "" ? (object)DBNull.Value : ddlSt.SelectedValue;
+                row["Resp_EmpId"] = ddlRp.SelectedValue == "" ? (object)DBNull.Value : ddlRp.SelectedValue;
+
+                bool noSt = ddlSt.SelectedValue == "";
+                bool noRp = ddlRp.SelectedValue == "";
+                ddlSt.CssClass = "form-control aad-ddl" + (noSt ? " aad-ddl-empty" : "");
+                ddlRp.CssClass = "form-control aad-ddl" + (noRp ? " aad-ddl-empty" : "");
+
+                if (noSt || noRp)
+                    msgs.Add("• รายการที่ " + no + (GetVal(row, "FixAssetNo") != "" ? " (" + GetVal(row, "FixAssetNo") + ")" : "") + " : " +
+                             (noSt ? "ยังไม่เลือก Status Use " : "") + (noRp ? "ยังไม่เลือกผู้รับผิดชอบ" : ""));
+            }
+            StorageListDT = dt;
+
+            // รายการใน Step 3 ต้องอยู่ใน Modal ครบทุกแถว (กันรายการถูกเพิ่ม/ลบระหว่างเปิด Modal)
+            int active = dt.Rows.Cast<DataRow>().Count(r => r.RowState != DataRowState.Deleted && GetVal(r, "CompareData") != "Delete");
+            if (read != active)
+            {
+                alert_toast("รายการใน Storage List เปลี่ยนไประหว่างเปิด Modal กรุณากด AAD Confirm ใหม่อีกครั้ง",
+                            "ข้อมูลไม่ตรงกัน", "warn", "8000");
+                ScriptManager.RegisterStartupScript(this, GetType(), "closeCfm",
+                    "var m=document.getElementById('" + pnlConfirmModal.ClientID + "'); if(m) m.style.display='none';", true);
+                return false;
+            }
+
+            if (msgs.Count == 0) return true;
+            alert_toast("กรุณาเลือกข้อมูลให้ครบ (ช่องสีเหลือง / ขอบแดง) :\n" + string.Join("\n", msgs.ToArray()),
+                        "ข้อมูล AAD Confirm ไม่ครบ", "warn", "15000");
+            return false;
+        }
+
+        #endregion
 
         // ══════════════════════════════════════════════════════════════
         // Modal เหตุผล : ยืนยัน Reject / Cancel (อ้างอิง Borrow2)
@@ -3015,6 +3239,14 @@ namespace Tool_Equipment_Control_System
         // ══════════════════════════════════════════════════════════════════════
         private void AAD_Confirm_Location(string Doc_No)
         {
+            // ── Status Use / ผู้รับผิดชอบ ที่ AAD เลือกใน Modal (key = tool_id|sub_id|system_id) ──
+            var aadMap = new Dictionary<string, DataRow>();
+            DataTable sl = StorageListDT;
+            EnsureAadCols(sl);
+            foreach (DataRow r in sl.Rows)
+                if (r.RowState != DataRowState.Deleted && GetVal(r, "CompareData") != "Delete")
+                    aadMap[StoRowKey(r)] = r;
+
             if (string.IsNullOrEmpty(Doc_No) || Doc_No == "-")
             {
                 alert_toast("ไม่พบเลขเอกสาร ไม่สามารถ Update Location ได้", "Error", "error", "8000");
@@ -3137,9 +3369,33 @@ namespace Tool_Equipment_Control_System
                             if (doStation)
                                 UpdateToolLocation_Tx(c, tx, systemId, toolId, subId, "station", stationIdToUse);
 
-                            // ✅ Update fields คงที่ (dept_code/division/rsp_empID/status) — ทุก row เสมอ
-                            // ⚠️ HARDCODE ภายใน — แก้ทีหลัง
-                            UpdateToolFixedFields_Tx(c, tx, systemId, toolId, subId);
+                            // ✅ Status Use / ผู้รับผิดชอบ : ค่าจาก Modal (บังคับครบแล้ว) — Dept คง AAD (5505)
+                            DataRow aad;
+                            string key = toolId + "|" + subId + "|" + systemId;
+                            if (!aadMap.TryGetValue(key, out aad) || GetVal(aad, "Use_StatusId") == "" || GetVal(aad, "Resp_EmpId") == "")
+                                throw new InvalidOperationException("ไม่พบ Status Use / ผู้รับผิดชอบ ของรายการ " + key + " กรุณากด AAD Confirm ใหม่");
+                            int newStatus = Convert.ToInt32(GetVal(aad, "Use_StatusId"));
+                            string newResp = GetVal(aad, "Resp_EmpId");
+
+                            // ประวัติ : Status / ผู้รับผิดชอบ เดิม (snapshot ก่อน Update) → ใหม่
+                            using (var cmd = new SqlCommand(
+                                "UPDATE S SET S.Old_Status_Id = V.status_id , S.New_Status_Id = @st ," +
+                                "       S.Old_Responsible = CAST(V.rsp_empID AS nvarchar(50)) , S.New_Responsible = @rp" +
+                                " FROM Storage_List S" +
+                                " LEFT JOIN Tool_Equipment_List_View V" +
+                                "   ON S.tool_id = V.tool_id AND S.sub_id = V.sub_no AND S.system_id = V.sys_status" +
+                                " WHERE S.Doc_No = @doc AND S.tool_id = @tid AND S.sub_id = @sid AND S.system_id = @sys", c, tx))
+                            {
+                                cmd.Parameters.AddWithValue("@st", newStatus);
+                                cmd.Parameters.AddWithValue("@rp", newResp);
+                                cmd.Parameters.AddWithValue("@doc", Doc_No);
+                                cmd.Parameters.AddWithValue("@tid", toolId);
+                                cmd.Parameters.AddWithValue("@sid", subId);
+                                cmd.Parameters.AddWithValue("@sys", systemId);
+                                cmd.ExecuteNonQuery();
+                            }
+
+                            UpdateToolFixedFields_Tx(c, tx, systemId, toolId, subId, newStatus, newResp);
                         }
 
                         tx.Commit();
@@ -3258,7 +3514,7 @@ namespace Tool_Equipment_Control_System
         // ⚠️ HARDCODE : dept_code=26, division=2, rsp_empID=000198, status=2
         // ⚠️ TODO : เปลี่ยนเป็นค่าจริง/parameter ภายหลัง อย่าปล่อย hardcode ขึ้น production ถาวร
         private void UpdateToolFixedFields_Tx(SqlConnection c, SqlTransaction tx,
-            string systemId, string toolId, string subId)
+            string systemId, string toolId, string subId, int statusId, string rspEmpId)
         {
             string sql;
 
@@ -3285,11 +3541,11 @@ namespace Tool_Equipment_Control_System
 
             using (var cmd = new SqlCommand(sql, c, tx))
             {
-                // ⚠️ HARDCODE ค่าคงที่ — แก้ทีหลัง
+                // Dept คงที่ = AAD (5505 → dept_code 26 / division 2) · Status / ผู้รับผิดชอบ = ค่าจาก Modal AAD Confirm
                 cmd.Parameters.AddWithValue("@dept_code", 26);
                 cmd.Parameters.AddWithValue("@division", 2);
-                cmd.Parameters.AddWithValue("@rsp_empID", "000198");
-                cmd.Parameters.AddWithValue("@status", 2);
+                cmd.Parameters.AddWithValue("@rsp_empID", rspEmpId);
+                cmd.Parameters.AddWithValue("@status", statusId);
 
                 cmd.Parameters.AddWithValue("@toolId", toolId);
                 cmd.Parameters.AddWithValue("@subId", subId);

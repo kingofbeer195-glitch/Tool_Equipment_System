@@ -409,8 +409,53 @@ namespace Tool_Equipment_Control_System
                 dt.Rows.Add(newRow);
             }
 
+            ApplyCurrentSnapshot(dt, Doc_No);   // ✅ Current = ข้อมูล ณ ตอน AAD Confirm (ถ้ามี)
             StorageListDT = dt;
             BindStorageList();
+        }
+
+        /// <summary>
+        /// Current (Dept / Model / Cell / Station) = ข้อมูล "ณ ตอน AAD Confirm" ของเอกสารนี้
+        /// อ่านจาก History_Change_Location (Doc_No) — เอกสารที่ยังไม่ Confirm (ไม่มีประวัติ) = ข้อมูลปัจจุบันของอุปกรณ์ตามเดิม
+        /// กัน Mode View แสดง Location ใหม่ (หลัง Update จริง) ในช่อง Current
+        /// </summary>
+        private void ApplyCurrentSnapshot(DataTable dt, string Doc_No)
+        {
+            if (dt == null || dt.Rows.Count == 0 || string.IsNullOrEmpty(Doc_No) || Doc_No == "-") return;
+            try
+            {
+                dc.QryDT_P(conn,
+                    "SELECT Tool_id, Tool_sub, System_id, Old_DeptCode, Old_Model_Id, Old_Model_Name," +
+                    "       Old_Cell_Id, Old_Cell_Name, Old_Station_Id, Old_Station_Name" +
+                    " FROM History_Change_Location WHERE Doc_No = @d ORDER BY History_id DESC",
+                    new SqlParameter("@d", SqlDbType.NVarChar) { Value = Doc_No });
+                if (dc.dt == null || dc.dt.Rows.Count == 0) return;
+
+                var map = new Dictionary<string, DataRow>();
+                foreach (DataRow h in dc.dt.Rows)
+                {
+                    string k = GetVal(h, "Tool_id") + "|" + GetVal(h, "Tool_sub") + "|" + GetVal(h, "System_id");
+                    if (!map.ContainsKey(k)) map[k] = h;                  // ล่าสุดของแต่ละรายการ
+                }
+
+                foreach (DataRow r in dt.Rows)
+                {
+                    DataRow h;
+                    string k = GetVal(r, "ToolId") + "|" + GetVal(r, "ToolSub") + "|" + GetVal(r, "SystemId");
+                    if (!map.TryGetValue(k, out h)) continue;
+                    r["DeptCode"] = GetVal(h, "Old_DeptCode");
+                    r["ModelId"] = GetVal(h, "Old_Model_Id");
+                    r["ModelName"] = GetVal(h, "Old_Model_Name");
+                    r["CellId"] = GetVal(h, "Old_Cell_Id");
+                    r["CellName"] = GetVal(h, "Old_Cell_Name");
+                    r["StationId"] = GetVal(h, "Old_Station_Id");
+                    r["StationName"] = GetVal(h, "Old_Station_Name");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Current Snapshot] " + Doc_No + " : " + ex.Message);   // ใช้ข้อมูลปัจจุบันตามเดิม
+            }
         }
         protected void Bind_History_Reject(string Doc_No)
         {
@@ -1032,8 +1077,9 @@ namespace Tool_Equipment_Control_System
                 return;
             }
 
-            // ✅ Step 2 : status 99 → 100 + update location (tx เดียว)
-            AAD_Confirm_Location(Doc_No);
+            // ✅ Step 2 : คงสถานะ 99 (Wait Update) + บันทึก Before/After + History_Change_Location (tx เดียว)
+            //    ยังไม่ Update ข้อมูลอุปกรณ์จริง — แบบเดียวกับ withdraw2
+            AAD_Confirm_WaitUpdate(Doc_No);
         }
 
         private void ReopenConfirmModal()
@@ -3272,6 +3318,225 @@ namespace Tool_Equipment_Control_System
         // AAD Confirm : status 99 → 100 + Update Location (Cell / Station)
         // ทั้งหมดใน transaction เดียว (cross-DB, server เดียวกัน)
         // ══════════════════════════════════════════════════════════════════════
+        /// <summary>
+        /// AAD Confirm → 99 Wait Update (อ้างอิง withdraw2)
+        ///   1) Storage_List : Old (snapshot จากอุปกรณ์ตอนนี้) / New (ค่าที่ AAD เลือกใน Modal) ของ Status + ผู้รับผิดชอบ
+        ///   2) History_Change_Location : Current → Storage (Dept / Model / Cell / Station / Status / ผู้รับผิดชอบ) + Doc_No
+        ///   ยังไม่ Update ข้อมูลอุปกรณ์จริง (ทำในขั้น Update 99 → 100)
+        ///   ล้มเหลว → rollback + คืนสถานะเอกสารเดิม (ไม่ค้างที่ 99 โดยไม่มีประวัติ)
+        /// </summary>
+        private void AAD_Confirm_WaitUpdate(string Doc_No)
+        {
+            if (string.IsNullOrEmpty(Doc_No) || Doc_No == "-")
+            {
+                alert_toast("ไม่พบเลขเอกสาร ไม่สามารถ AAD Confirm ได้", "Error", "error", "8000");
+                return;
+            }
+
+            DataTable sl = StorageListDT;
+            EnsureAadCols(sl);
+            string empId = Session["emp_id"] != null ? Session["emp_id"].ToString().Trim() : txtEmpId.Text.Trim();
+            string connStr = ConfigurationManager.ConnectionStrings["tool_equipment"].ConnectionString;
+            string err = null;
+
+            using (var c = new SqlConnection(connStr))
+            {
+                c.Open();
+                using (var tx = c.BeginTransaction())
+                {
+                    try
+                    {
+                        foreach (DataRow r in sl.Rows)
+                        {
+                            if (r.RowState == DataRowState.Deleted || GetVal(r, "CompareData") == "Delete") continue;
+
+                            string st = GetVal(r, "Use_StatusId"), rp = GetVal(r, "Resp_EmpId");
+                            if (st == "" || rp == "")
+                                throw new InvalidOperationException("ไม่พบ Status Use / ผู้รับผิดชอบ ของรายการ " + GetVal(r, "ControlNo") + " กรุณากด AAD Confirm ใหม่");
+
+                            // 1) Before / After : Status + ผู้รับผิดชอบ
+                            using (var cmd = new SqlCommand(
+                                "UPDATE S SET S.Old_Status_Id = V.status_id , S.New_Status_Id = @st ," +
+                                "       S.Old_Responsible = CAST(V.rsp_empID AS nvarchar(50)) , S.New_Responsible = @rp" +
+                                " FROM Storage_List S" +
+                                " LEFT JOIN Tool_Equipment_List_View V" +
+                                "   ON S.tool_id = V.tool_id AND S.sub_id = V.sub_no AND S.system_id = V.sys_status" +
+                                " WHERE S.Doc_No = @doc AND S.tool_id = @tid AND S.sub_id = @sid AND S.system_id = @sys", c, tx))
+                            {
+                                cmd.Parameters.AddWithValue("@st", Convert.ToInt32(st));
+                                cmd.Parameters.AddWithValue("@rp", rp);
+                                cmd.Parameters.AddWithValue("@doc", Doc_No);
+                                cmd.Parameters.AddWithValue("@tid", GetVal(r, "ToolId"));
+                                cmd.Parameters.AddWithValue("@sid", GetVal(r, "ToolSub"));
+                                cmd.Parameters.AddWithValue("@sys", GetVal(r, "SystemId"));
+                                if (cmd.ExecuteNonQuery() == 0)
+                                    throw new InvalidOperationException("ไม่พบรายการ " + GetVal(r, "ControlNo") + " ใน Storage_List");
+                            }
+                        }
+
+                        // 2) History_Change_Location
+                        InsertLocationHistory_Tx(c, tx, sl, Doc_No, empId);
+
+                        tx.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        try { tx.Rollback(); } catch { }
+                        err = ex.Message;
+                    }
+                }
+            }
+
+            if (err != null)
+            {
+                RevertStatusAfterFailedConfirm(Doc_No);
+                alert_toast("AAD Confirm ไม่สำเร็จ : " + err + "\nระบบคืนสถานะเอกสารเดิมแล้ว", "Error", "error", "12000");
+                return;
+            }
+
+            // ── สำเร็จ → alert + redirect ──
+            string jsDoc = HttpUtility.JavaScriptStringEncode(Doc_No);
+            string script =
+                "if (typeof showFullOverlay === 'function') showFullOverlay('กำลังบันทึก...', 'กรุณารอสักครู่');" +
+                "if (typeof showToast === 'function') {" +
+                "  showToast('Doc No : " + jsDoc + "', { title: 'AAD Confirm เรียบร้อย (Wait Update)', type: 'success', duration: 2000 });" +
+                "}" +
+                "setTimeout(function () { window.location.href = 'ApproveStatus.aspx'; }, 2000);";
+
+            ScriptManager.RegisterStartupScript(this, this.GetType(), "redirectScript", script, true);
+        }
+
+        /// <summary>บันทึก Before/After ไม่สำเร็จ → คืนสถานะเอกสาร (เอกสารใหม่ = Draft)</summary>
+        private void RevertStatusAfterFailedConfirm(string Doc_No)
+        {
+            string prev = Convert.ToString(ViewState["STATUS_ID"]).Trim();
+            if (prev == "" || prev == "99" || prev == "100") prev = "1";
+            try
+            {
+                string cs = ConfigurationManager.ConnectionStrings["tool_equipment"].ConnectionString;
+                using (var c = new SqlConnection(cs))
+                using (var cmd = new SqlCommand(
+                    "UPDATE Storage_Control_List SET status_id = @st, update_date = GETDATE() WHERE Doc_No = @doc AND status_id = 99;" +
+                    "UPDATE Storage_List SET status_id = @st WHERE Doc_No = @doc AND status_id = 99;", c))
+                {
+                    cmd.Parameters.AddWithValue("@st", Convert.ToInt32(prev));
+                    cmd.Parameters.AddWithValue("@doc", Doc_No);
+                    c.Open();
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Revert] " + Doc_No + " : " + ex.Message);
+            }
+        }
+
+        private static object IntOrNull(string s)
+        {
+            int v;
+            return int.TryParse((s ?? "").Trim(), out v) ? (object)v : DBNull.Value;
+        }
+
+        /// <summary>
+        /// History_Change_Location : Current → Storage (อ้างอิง withdraw2.InsertLocationHistory_Tx)
+        ///   Old = ข้อมูลใน Storage List (Dept / Model / Cell / Station) + Status / ผู้รับผิดชอบปัจจุบันของอุปกรณ์
+        ///   New = Dept AAD (5505) · Model เดิม (Storage ไม่เปลี่ยน Model) · Cell / Station ที่จัดเก็บ · Status / ผู้รับผิดชอบที่ AAD เลือก
+        /// </summary>
+        private void InsertLocationHistory_Tx(SqlConnection c, SqlTransaction tx, DataTable dt, string Doc_No, string editBy)
+        {
+            const string sql = @"
+                INSERT INTO tool_eduipment_system.dbo.History_Change_Location
+                (Tool_id, Tool_sub, System_id, Fix_Asset_No, Control_No, Tool_No,
+                 Old_Status_Id, New_Status_Id,
+                 Old_DeptCode, New_DeptCode,
+                 Old_Responsible, New_Responsible,
+                 Old_Model_Id, Old_Model_Name, New_Model_Id, New_Model_Text, HD_Model,
+                 Old_Cell_Id, Old_Cell_Name, New_Cell_Id, New_Cell_Text, HD_Cell,
+                 Old_Station_Id, Old_Station_Name, New_Station_Id, New_Station_Text, HD_Station,
+                 Old_Location1_id, Edit_By, Edit_Date, Remark, Doc_No)
+                SELECT
+                 @ToolId, @ToolSub, @SystemId, @FixAsset, @ControlNo, @ToolNo,
+                 V.status_id, @NewStatusId,
+                 @OldDept, @NewDept,
+                 CASE WHEN ISNULL(LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50)))), '') = '' THEN NULL
+                      WHEN ISNULL(RO.pic_dept, '') = '' THEN LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50))))
+                      ELSE LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50)))) + ' - ' + RO.pic_dept END,
+                 CASE WHEN ISNULL(@NewResp, '') = '' THEN NULL
+                      WHEN ISNULL(RN.pic_dept, '') = '' THEN @NewResp
+                      ELSE @NewResp + ' - ' + RN.pic_dept END,
+                 @OldModelId, @OldModelName, @OldModelId, @OldModelName, 'ddl',
+                 @OldCellId, @OldCellName,
+                 CASE WHEN @HDCell = 'txt' THEN NULL ELSE @NewCellId END,
+                 CASE WHEN @HDCell = 'txt' THEN @AddCell ELSE L2.location2_name END, @HDCell,
+                 @OldStationId, @OldStationName,
+                 CASE WHEN @HDStation = 'txt' THEN NULL ELSE @NewStationId END,
+                 CASE WHEN @HDStation = 'txt' THEN @AddStation ELSE L3.location3_name END, @HDStation,
+                 V.location1_id, @EditBy, GETDATE(), @Remark, @DocNo
+                FROM (SELECT 1 AS x) D
+                OUTER APPLY (SELECT TOP 1 status_id, rsp_empID, location1_id FROM Tool_Equipment_List_View
+                             WHERE tool_id = @ToolId AND sub_no = @ToolSub AND sys_status = @SystemId) V
+                OUTER APPLY (SELECT TOP 1 pic_dept FROM Responsible_Dept
+                             WHERE LTRIM(RTRIM(emp_id)) = LTRIM(RTRIM(CAST(V.rsp_empID AS nvarchar(50))))) RO
+                OUTER APPLY (SELECT TOP 1 pic_dept FROM Responsible_Dept
+                             WHERE LTRIM(RTRIM(emp_id)) = @NewResp) RN
+                OUTER APPLY (SELECT TOP 1 location2_name FROM jig_tool_system.dbo.master_location2
+                             WHERE location2_id = @NewCellId) L2
+                OUTER APPLY (SELECT TOP 1 location3_name FROM jig_tool_system.dbo.master_location3
+                             WHERE location3_id = @NewStationId) L3;";
+
+            string remark = Cut("จัดเก็บอุปกรณ์ " + Doc_No +
+                                (txt_StorageComment.Text.Trim() == "" ? "" : " : " + txt_StorageComment.Text.Trim()), 500);
+
+            foreach (DataRow r in dt.Rows)
+            {
+                if (r.RowState == DataRowState.Deleted || GetVal(r, "CompareData") == "Delete") continue;
+
+                string hdCell = GetVal(r, "HD_Cell") == "txt" ? "txt" : "ddl";
+                string hdStation = GetVal(r, "HD_Station") == "txt" ? "txt" : "ddl";
+
+                using (var cmd = new SqlCommand(sql, c, tx))
+                {
+                    cmd.Parameters.Add("@ToolId", SqlDbType.NVarChar, 50).Value = GetVal(r, "ToolId");
+                    cmd.Parameters.Add("@ToolSub", SqlDbType.NVarChar, 50).Value = GetVal(r, "ToolSub");
+                    cmd.Parameters.Add("@SystemId", SqlDbType.NVarChar, 10).Value = GetVal(r, "SystemId");
+                    cmd.Parameters.Add("@FixAsset", SqlDbType.NVarChar, 100).Value = DbStr(GetVal(r, "FixAssetNo"), 100);
+                    cmd.Parameters.Add("@ControlNo", SqlDbType.NVarChar, 100).Value = DbStr(GetVal(r, "ControlNo"), 100);
+                    cmd.Parameters.Add("@ToolNo", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "ToolNo"), 200);
+
+                    cmd.Parameters.Add("@NewStatusId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "Use_StatusId"));
+                    cmd.Parameters.Add("@OldDept", SqlDbType.NVarChar, 50).Value = DbStr(GetVal(r, "DeptCode"), 50);
+                    cmd.Parameters.Add("@NewDept", SqlDbType.NVarChar, 50).Value = STORAGE_DEPT;
+                    cmd.Parameters.Add("@NewResp", SqlDbType.NVarChar, 50).Value = Cut(GetVal(r, "Resp_EmpId"), 50);
+
+                    cmd.Parameters.Add("@OldModelId", SqlDbType.NVarChar, 50).Value = DbStr(GetVal(r, "ModelId"), 50);
+                    cmd.Parameters.Add("@OldModelName", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "ModelName"), 200);
+
+                    cmd.Parameters.Add("@OldCellId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "CellId"));
+                    cmd.Parameters.Add("@OldCellName", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "CellName"), 200);
+                    cmd.Parameters.Add("@NewCellId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "Use_CellId"));
+                    cmd.Parameters.Add("@AddCell", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "Add_Cell"), 200);
+                    cmd.Parameters.Add("@HDCell", SqlDbType.NVarChar, 10).Value = hdCell;
+
+                    cmd.Parameters.Add("@OldStationId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "StationId"));
+                    cmd.Parameters.Add("@OldStationName", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "StationName"), 200);
+                    cmd.Parameters.Add("@NewStationId", SqlDbType.Int).Value = IntOrNull(GetVal(r, "Use_StationId"));
+                    cmd.Parameters.Add("@AddStation", SqlDbType.NVarChar, 200).Value = DbStr(GetVal(r, "Add_Station"), 200);
+                    cmd.Parameters.Add("@HDStation", SqlDbType.NVarChar, 10).Value = hdStation;
+
+                    cmd.Parameters.Add("@EditBy", SqlDbType.NVarChar, 50).Value = Cut(editBy, 50);
+                    cmd.Parameters.Add("@Remark", SqlDbType.NVarChar, 500).Value = remark;
+                    cmd.Parameters.Add("@DocNo", SqlDbType.NVarChar, 30).Value = Doc_No;
+
+                    if (cmd.ExecuteNonQuery() != 1)
+                        throw new InvalidOperationException("บันทึกประวัติเปลี่ยน Location (History_Change_Location) ไม่สำเร็จ : " + GetVal(r, "ControlNo"));
+                }
+            }
+        }
+
+        /// <summary>
+        /// ⚠️ ไม่ถูกเรียกจาก AAD Confirm แล้ว (เปลี่ยนเป็น 99 Wait Update) — เก็บไว้เป็นต้นแบบของขั้น Update จริง 99 → 100
+        ///    (ย้าย Cell/Station + สร้าง Master Cell/Station ใหม่ + Dept AAD + Status/ผู้รับผิดชอบตาม New_* ใน Storage_List)
+        /// </summary>
         private void AAD_Confirm_Location(string Doc_No)
         {
             // ── Status Use / ผู้รับผิดชอบ ที่ AAD เลือกใน Modal (key = tool_id|sub_id|system_id) ──

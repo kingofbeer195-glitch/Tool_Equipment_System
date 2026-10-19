@@ -1776,8 +1776,8 @@
                 else alert(msg);
                 return false;
             }
-            if (!confirm('⚠️ ยืนยัน AAD Confirm\n\nตรวจสอบรายการและสถานที่จัดเก็บครบทุกรายการแล้วใช่หรือไม่?\n' +
-                'เมื่อยืนยันแล้ว ระบบจะอัปเดตข้อมูลอุปกรณ์ทันทีและแก้ไขไม่ได้\n\nกด OK เพื่อดำเนินการต่อ')) return false;
+            if (!confirm('⚠️ ยืนยัน AAD Confirm\n\nตรวจสอบรายการ / Status Use / ผู้รับผิดชอบ ครบทุกรายการแล้วใช่หรือไม่?\n' +
+                'เมื่อยืนยันแล้ว เอกสารจะเป็น Wait Update และแก้ไขไม่ได้\n\nกด OK เพื่อดำเนินการต่อ')) return false;
             closeConfirmModal();
             if (typeof showFullOverlay === 'function') showFullOverlay('กำลังบันทึก AAD Confirm...', 'กรุณารอสักครู่');
             return true;
@@ -2862,9 +2862,8 @@
                         </div>
 
                         <div class="wcf-notice">
-                            เมื่อยืนยัน เอกสารจะเปลี่ยนเป็น <b>Completed</b> และระบบจะอัปเดตอุปกรณ์ทุกรายการทันที :
-                            ย้าย Cell / Station ไปยังที่จัดเก็บ (Cell / Station ที่ระบุว่า "ใหม่" จะถูกสร้างใน Master) ,
-                            เปลี่ยนแผนกเป็น AAD (5505) และบันทึก <b>Status Use / ผู้รับผิดชอบ</b> (เดิม → ใหม่) ของทุกรายการ
+                            เมื่อยืนยัน เอกสารจะเปลี่ยนเป็น <b>Wait Update</b> และบันทึก Status / ผู้รับผิดชอบ / Location (เดิม → ใหม่) ของทุกรายการ
+                            — ข้อมูลอุปกรณ์จะถูกอัปเดตจริงในขั้น Update (Dept AAD 5505 , Cell / Station ที่จัดเก็บ , Status Use / ผู้รับผิดชอบ)
                         </div>
                     </div>
 

@@ -589,8 +589,53 @@ namespace Tool_Equipment_Control_System
                 dt.Rows.Add(newRow);
             }
 
+            ApplyCurrentSnapshot(dt, Doc_No);   // ✅ Current = ข้อมูล ณ ตอน AAD Confirm (ถ้ามี)
             BorrowListDT = dt;
             BindBorrowList();
+        }
+
+        /// <summary>
+        /// Current (Dept / Model / Cell / Station) = ข้อมูล "ณ ตอน AAD Confirm" ของเอกสารนี้
+        /// อ่านจาก History_Change_Location (Doc_No) — เอกสารที่ยังไม่ Confirm (ไม่มีประวัติ) = ข้อมูลปัจจุบันของอุปกรณ์ตามเดิม
+        /// กัน Mode View แสดง Location ใหม่ (หลัง Update จริง) ในช่อง Current
+        /// </summary>
+        private void ApplyCurrentSnapshot(DataTable dt, string Doc_No)
+        {
+            if (dt == null || dt.Rows.Count == 0 || string.IsNullOrEmpty(Doc_No) || Doc_No == "-") return;
+            try
+            {
+                dc.QryDT_P(conn,
+                    "SELECT Tool_id, Tool_sub, System_id, Old_DeptCode, Old_Model_Id, Old_Model_Name," +
+                    "       Old_Cell_Id, Old_Cell_Name, Old_Station_Id, Old_Station_Name" +
+                    " FROM History_Change_Location WHERE Doc_No = @d ORDER BY History_id DESC",
+                    new SqlParameter("@d", SqlDbType.NVarChar) { Value = Doc_No });
+                if (dc.dt == null || dc.dt.Rows.Count == 0) return;
+
+                var map = new Dictionary<string, DataRow>();
+                foreach (DataRow h in dc.dt.Rows)
+                {
+                    string k = GetVal(h, "Tool_id") + "|" + GetVal(h, "Tool_sub") + "|" + GetVal(h, "System_id");
+                    if (!map.ContainsKey(k)) map[k] = h;                  // ล่าสุดของแต่ละรายการ
+                }
+
+                foreach (DataRow r in dt.Rows)
+                {
+                    DataRow h;
+                    string k = GetVal(r, "ToolId") + "|" + GetVal(r, "ToolSub") + "|" + GetVal(r, "SystemId");
+                    if (!map.TryGetValue(k, out h)) continue;
+                    r["DeptCode"] = GetVal(h, "Old_DeptCode");
+                    r["ModelId"] = GetVal(h, "Old_Model_Id");
+                    r["ModelName"] = GetVal(h, "Old_Model_Name");
+                    r["CellId"] = GetVal(h, "Old_Cell_Id");
+                    r["CellName"] = GetVal(h, "Old_Cell_Name");
+                    r["StationId"] = GetVal(h, "Old_Station_Id");
+                    r["StationName"] = GetVal(h, "Old_Station_Name");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[Current Snapshot] " + Doc_No + " : " + ex.Message);   // ใช้ข้อมูลปัจจุบันตามเดิม
+            }
         }
         protected void Bind_History_Reject(string Doc_No)
         {

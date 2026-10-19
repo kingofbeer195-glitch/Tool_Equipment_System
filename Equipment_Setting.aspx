@@ -438,7 +438,7 @@
                             </div>
                             <div class="st-field" style="display:flex; gap:10px; align-items:flex-end;">
                                 <div style="flex:1;">
-                                    <label>Priority <span class="st-muted">(มากกว่าชนะ · Withdraw : ใช้เมื่อเจาะจงเท่ากัน · Storage : ดูก่อนความเจาะจง)</span></label>
+                                    <label title="Withdraw : ใช้เมื่อกฎเจาะจงเท่ากัน · Storage : ดู Priority ก่อนความเจาะจง">Priority <span class="st-muted">(มากกว่าชนะ)</span></label>
                                     <asp:TextBox ID="txtPriority" runat="server" CssClass="st-input" Text="0" MaxLength="5" />
                                 </div>
                                 <asp:CheckBox ID="chkActive" runat="server" CssClass="st-chk" Text="เปิดใช้งาน" Checked="true" />

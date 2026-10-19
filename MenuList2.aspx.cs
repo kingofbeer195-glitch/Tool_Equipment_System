@@ -60,7 +60,8 @@ namespace Tool_Equipment_Control_System
 
             if (Admin == "99")
             {
-                // 1.2 เมนูกำลังพัฒนา : แสดงเฉพาะ Admin
+                // 1.2 เมนูเฉพาะ Admin
+                menuStorage.Visible = true;     // จัดเก็บอุปกรณ์ (เปิดใช้งานแล้ว แต่ยังให้เฉพาะ Admin)
                 menuDashboard.Visible = true;   // Dashboard
                 menuEquipment.Visible = true;   // Equipment
                 menuEquipment.Visible = true;

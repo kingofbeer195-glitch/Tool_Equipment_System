@@ -56,6 +56,21 @@
                 });
             });
         }
+        // ใช้กับ : Withdraw / Storage → แสดงเฉพาะช่องเงื่อนไขที่ใช้ได้
+        function applyToToggle() {
+            var r = document.querySelector('[id$="rblApplyTo"] input:checked');
+            var isS = r && r.value === 'STORAGE';
+            jQuery('.st-only-w').toggle(!isS);
+            jQuery('.st-only-s').toggle(isS);
+        }
+        function testApplyToggle() {
+            var r = document.querySelector('[id$="rblTestApply"] input:checked');
+            var isS = r && r.value === 'STORAGE';
+            jQuery('.st-test-w').toggle(!isS);
+            jQuery('.st-test-s').toggle(isS);
+        }
+        jQuery(document).on('change', '[id$="rblApplyTo"] input', applyToToggle);
+        jQuery(document).on('change', '[id$="rblTestApply"] input', testApplyToggle);
         function closeEditor() {
             var m = document.getElementById('<%= pnlEditor.ClientID %>');
             if (m) m.style.display = 'none';
@@ -65,8 +80,10 @@
             return confirm('⚠️ ลบกฎ "' + name + '" ?\n\nกฎจะถูกลบถาวร (ยังดูได้ในประวัติ)\nกด OK เพื่อลบ');
         }
         jQuery(function () {
-            initStSelect2();
-            if (window.Sys && Sys.WebForms) Sys.WebForms.PageRequestManager.getInstance().add_endRequest(initStSelect2);
+            initStSelect2(); testApplyToggle();
+            if (window.Sys && Sys.WebForms) Sys.WebForms.PageRequestManager.getInstance().add_endRequest(function () {
+                initStSelect2(); testApplyToggle();
+            });
         });
     </script>
 
@@ -143,6 +160,13 @@
         .chip-dept { background:#e8f1fd; color:#1858c4; border-color:#bcd1f7; }
         .chip-cell { background:#e3f4e8; color:#16703d; border-color:#b6e0c4; }
         .chip-sta  { background:#f8eefb; color:#7e2178; border-color:#dfc0e6; }
+        .chip-st   { background:#fdf3d7; color:#7a5b16; border-color:#ecd9a6; }
+        .chip-okng { background:#fbeceb; color:#a82f2f; border-color:#f2c2bd; }
+        .chip-rp   { background:#eaf3fb; color:#245177; border-color:#bcd9ef; }
+        .chip-rs   { background:#ececec; color:#4c4c4c; border-color:#cfcfcf; }
+        .st-apply { display:inline-block; margin-right:4px; padding:0 7px; border-radius:4px; font-size:10.5px; font-weight:700; letter-spacing:.3px; vertical-align:middle; }
+        .st-apply-w { background:#e8f1fd; color:#1858c4; border:1px solid #bcd1f7; }
+        .st-apply-s { background:#e7edcf; color:#566a26; border:1px solid #c9d39e; }
         .st-op { display:inline-block; margin:0 4px; font-size:11px; font-weight:800; color:#c47f00; }
         .st-paren { white-space:normal; }
         .st-badge { display:inline-block; padding:1px 8px; border-radius:4px; background:#fff4e0; color:#a15c00; border:1px solid #f5c26b; font-size:11px; font-weight:700; white-space:nowrap; }
@@ -258,6 +282,8 @@
                                     <li>หลายค่าในช่องเดียวกัน = <b>หรือ</b> (Dept 5510 หรือ 5515) · Dept กับ Cell/Station = <b>และ</b></li>
                                     <li>ตรงหลายกฎ : <span class="st-badge">Dept + Location</span> &gt; <span class="st-badge">Location</span> &gt; <span class="st-badge">Dept</span> — เท่ากันใช้ Priority มากกว่า</li>
                                     <li>ไม่ตรงกฎใด → ใช้ค่าเดิม (ผู้รับผิดชอบจาก Responsible_Dept · Dept 5505 = Spare / อื่น ๆ = Use)</li>
+                                    <li><span class="st-apply st-apply-s">Storage</span> ใช้กับหน้า <b>จัดเก็บอุปกรณ์</b> : เงื่อนไขจาก Status / OK-NG / Repair / เหตุผล / Cell / Station
+                                        · ตรงหลายกฎ → <b>Priority มากกว่าชนะก่อน</b> แล้วจึงดูกฎที่เจาะจงกว่า · ไม่ตรงกฎใด → AAD ต้องเลือกเอง</li>
                                 </ul>
                             </div>
 
@@ -265,6 +291,12 @@
                                 <asp:LinkButton ID="btnAddRule" runat="server" CssClass="st-btn st-btn-primary" OnClick="btnAddRule_Click">＋ เพิ่มกฎ</asp:LinkButton>
                                 <asp:TextBox ID="txtFilter" runat="server" CssClass="st-input" placeholder="ค้นหา ชื่อกฎ / Dept / Cell / ผู้รับผิดชอบ" AutoComplete="off" />
                                 <asp:LinkButton ID="btnFilter" runat="server" CssClass="st-btn st-btn-light" OnClick="btnFilter_Click">🔍 ค้นหา</asp:LinkButton>
+                                <asp:DropDownList ID="ddlFilterApply" runat="server" CssClass="st-input" Style="width:auto;"
+                                    AutoPostBack="true" OnSelectedIndexChanged="ddlFilterApply_SelectedIndexChanged">
+                                    <asp:ListItem Value="" Text="ทุกประเภท" />
+                                    <asp:ListItem Value="WITHDRAW" Text="Withdraw" />
+                                    <asp:ListItem Value="STORAGE" Text="Storage" />
+                                </asp:DropDownList>
                                 <asp:CheckBox ID="chkShowInactive" runat="server" CssClass="st-chk" Text="แสดงกฎที่ปิดอยู่" Checked="true"
                                     AutoPostBack="true" OnCheckedChanged="chkShowInactive_CheckedChanged" />
                             </div>
@@ -284,7 +316,7 @@
                                         </asp:TemplateField>
                                         <asp:TemplateField HeaderText="กฎ" ItemStyle-Width="200px">
                                             <ItemTemplate>
-                                                <div class="st-name"><%# HttpUtility.HtmlEncode(Eval("rule_name").ToString()) %></div>
+                                                <div class="st-name"><%# Eval("apply_html") %><%# HttpUtility.HtmlEncode(Eval("rule_name").ToString()) %></div>
                                                 <div class="st-id">#<%# Eval("rule_id") %> · Priority <%# Eval("priority") %></div>
                                                 <div class="st-remark"><%# HttpUtility.HtmlEncode(Eval("remark").ToString()) %></div>
                                                 <div class="st-upd"><%# HttpUtility.HtmlEncode(Eval("update_info").ToString()) %></div>
@@ -323,6 +355,28 @@
                             <div class="st-test">
                                 <div class="st-sec">🧪 ทดสอบกฎ</div>
                                 <div class="st-field">
+                                    <asp:RadioButtonList ID="rblTestApply" runat="server" RepeatDirection="Horizontal" RepeatLayout="Flow" CssClass="st-rbl">
+                                        <asp:ListItem Value="WITHDRAW" Selected="True" Text="Withdraw" />
+                                        <asp:ListItem Value="STORAGE" Text="Storage" />
+                                    </asp:RadioButtonList>
+                                </div>
+                                <div class="st-field st-test-s">
+                                    <label>Status</label>
+                                    <asp:DropDownList ID="ddlTestStItem" runat="server" CssClass="st-input" />
+                                </div>
+                                <div class="st-field st-test-s">
+                                    <label>OK/NG</label>
+                                    <asp:DropDownList ID="ddlTestOkNg" runat="server" CssClass="st-input" />
+                                </div>
+                                <div class="st-field st-test-s">
+                                    <label>Repair Status</label>
+                                    <asp:DropDownList ID="ddlTestRepair" runat="server" CssClass="st-input" />
+                                </div>
+                                <div class="st-field st-test-s">
+                                    <label>เหตุผล</label>
+                                    <asp:DropDownList ID="ddlTestReason" runat="server" CssClass="st-input" />
+                                </div>
+                                <div class="st-field st-test-w">
                                     <label>Dept</label>
                                     <asp:DropDownList ID="ddlTestDept" runat="server" CssClass="st-input st-s2" data-ph="-- Dept --" />
                                 </div>
@@ -384,17 +438,41 @@
                             </div>
                             <div class="st-field" style="display:flex; gap:10px; align-items:flex-end;">
                                 <div style="flex:1;">
-                                    <label>Priority <span class="st-muted">(ใช้เมื่อเจาะจงเท่ากัน · มากกว่าชนะ)</span></label>
+                                    <label>Priority <span class="st-muted">(มากกว่าชนะ · Withdraw : ใช้เมื่อเจาะจงเท่ากัน · Storage : ดูก่อนความเจาะจง)</span></label>
                                     <asp:TextBox ID="txtPriority" runat="server" CssClass="st-input" Text="0" MaxLength="5" />
                                 </div>
                                 <asp:CheckBox ID="chkActive" runat="server" CssClass="st-chk" Text="เปิดใช้งาน" Checked="true" />
+                            </div>
+
+                            <div class="st-field full">
+                                <label>ใช้กับ *</label>
+                                <asp:RadioButtonList ID="rblApplyTo" runat="server" RepeatDirection="Horizontal" RepeatLayout="Flow" CssClass="st-rbl">
+                                    <asp:ListItem Value="WITHDRAW" Selected="True" Text="Withdraw (เบิก — เงื่อนไขจาก Dept / Cell / Station)" />
+                                    <asp:ListItem Value="STORAGE" Text="Storage (จัดเก็บ — เงื่อนไขจาก Status / OK-NG / Repair / เหตุผล)" />
+                                </asp:RadioButtonList>
                             </div>
 
                             <%-- เงื่อนไข --%>
                             <div class="st-group full">
                                 <div class="st-group-title">เงื่อนไข <small>— เลือกได้หลายค่า (ค่าในช่องเดียวกัน = หรือ)</small></div>
                                 <div class="st-form">
-                                    <div class="st-field full">
+                                    <div class="st-field st-only-s">
+                                        <label>Status (Step 3)</label>
+                                        <asp:ListBox ID="lbStItem" runat="server" SelectionMode="Multiple" CssClass="st-input st-s2" data-ph="ไม่ระบุ Status" />
+                                    </div>
+                                    <div class="st-field st-only-s">
+                                        <label>OK/NG</label>
+                                        <asp:ListBox ID="lbOkNg" runat="server" SelectionMode="Multiple" CssClass="st-input st-s2" data-ph="ไม่ระบุ OK/NG" />
+                                    </div>
+                                    <div class="st-field st-only-s">
+                                        <label>Repair Status</label>
+                                        <asp:ListBox ID="lbRepair" runat="server" SelectionMode="Multiple" CssClass="st-input st-s2" data-ph="ไม่ระบุ Repair" />
+                                    </div>
+                                    <div class="st-field st-only-s">
+                                        <label>เหตุผล</label>
+                                        <asp:ListBox ID="lbReason" runat="server" SelectionMode="Multiple" CssClass="st-input st-s2" data-ph="ไม่ระบุ เหตุผล" />
+                                    </div>
+                                    <div class="st-field full st-only-w">
                                         <label>Dept</label>
                                         <asp:ListBox ID="lbDept" runat="server" SelectionMode="Multiple" CssClass="st-input st-s2" data-ph="ทุก Dept (ไม่ระบุ)" />
                                     </div>

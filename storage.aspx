@@ -1739,6 +1739,21 @@
         table.wcf-table th { white-space:nowrap; text-align:center; padding:6px 8px; }
         table.wcf-table td { padding:6px 8px; text-align:center; font-size:12px; }
         table.wcf-table .zone-divider { border-left:3px solid var(--ol-800, #3d4c19) !important; }
+
+        /* AAD : Status Use / ผู้รับผิดชอบ (อ้างอิง withdraw2) */
+        table.wcf-table th.hdr-aad { background:#c79100 !important; color:#fff !important; }
+        table.wcf-table td.col-aad { background:#fdf6e3 !important; }
+        table.wcf-table td.col-aad select.aad-ddl {
+            min-width:200px; height:30px; padding:2px 6px;
+            background:#fff3cd !important; border:2px solid #ffc107 !important;
+            border-radius:6px; font-size:12.5px; font-weight:700; color:#6b4d00;
+        }
+        table.wcf-table td.col-aad select.aad-ddl:focus { outline:none; box-shadow:0 0 0 3px rgba(255,193,7,.35); }
+        table.wcf-table td.col-aad select.aad-ddl-empty { background:#fbeceb !important; border-color:#c93b3b !important; color:#a82f2f; }
+        table.wcf-table .rule-note { margin-top:4px; font-size:11.5px; color:#66727f; white-space:normal; max-width:260px; text-align:left; }
+        table.wcf-table .rule-note.hit { color:#7a4f00; background:#fff4e0; border:1px solid #f5c26b; border-radius:4px; padding:2px 6px; }
+        .cfm-warn ul { margin:4px 0 0; padding-left:18px; }
+        .cfm-warn .cfm-chip { display:inline-block; padding:0 8px; border-radius:4px; background:#fff3cd; border:1px solid #ffc107; font-weight:700; color:#6b4d00; }
     </style>
     <script>
         function closeConfirmModal() {
@@ -1746,6 +1761,16 @@
             if (m) m.style.display = 'none';
         }
         function cfmConfirm() {
+            var grid = document.getElementById('<%= gvConfirmSummary.ClientID %>');
+            var ddls = grid ? grid.querySelectorAll('select.aad-ddl:not([disabled])') : [];
+            var missing = 0;
+            for (var i = 0; i < ddls.length; i++) if (!ddls[i].value) missing++;
+            if (missing > 0) {
+                var msg = 'ยังมีช่อง Status Use / ผู้รับผิดชอบ ที่ไม่ได้เลือก ' + missing + ' ช่อง (ขอบแดง)';
+                if (typeof showToast === 'function') showToast(msg, { title: 'ข้อมูลไม่ครบ', type: 'warn', duration: 8000 });
+                else alert(msg);
+                return false;
+            }
             if (!confirm('⚠️ ยืนยัน AAD Confirm\n\nตรวจสอบรายการและสถานที่จัดเก็บครบทุกรายการแล้วใช่หรือไม่?\n' +
                 'เมื่อยืนยันแล้ว ระบบจะอัปเดตข้อมูลอุปกรณ์ทันทีและแก้ไขไม่ได้\n\nกด OK เพื่อดำเนินการต่อ')) return false;
             closeConfirmModal();
@@ -1755,6 +1780,11 @@
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') closeConfirmModal();
         });
+        // เลือกค่าแล้ว → เอาขอบแดงออกทันที
+        document.addEventListener('change', function (e) {
+            var s = e.target;
+            if (s && s.classList && s.classList.contains('aad-ddl')) s.classList.toggle('aad-ddl-empty', !s.value);
+        }, true);
     </script>
 
     <asp:ScriptManager runat="server" ID="scriptManager1" EnablePageMethods="true"></asp:ScriptManager>
@@ -2752,8 +2782,12 @@
                         <div class="cfm-warn">
                             <span class="cfm-warn-ico">⚠️</span>
                             <div>
-                                <b class="cfm-warn-title">กรุณาตรวจสอบ Status , OK/NG และสถานที่จัดเก็บ (Cell / Station) ทุกรายการก่อนกดยืนยัน</b>
-                                ถ้าข้อมูลไม่ถูกต้อง กด "ยกเลิก" แล้วแก้ไขใน Step 3 ก่อน
+                                <b class="cfm-warn-title">กรุณาตรวจสอบ Status Use และ ผู้รับผิดชอบ ทุกรายการก่อนกดยืนยัน</b>
+                                ช่อง <span class="cfm-chip">สีเหลือง</span> คือข้อมูลที่จะใช้อัปเดตอุปกรณ์ — ระบบเลือกให้ตามกฎ Auto Assign (Storage) แล้ว แต่ต้องตรวจให้ถูกต้อง
+                                <ul>
+                                    <li>ช่อง <b style="color:#a82f2f;">ขอบแดง</b> = ไม่ตรงกฎ / ยังไม่มีข้อมูล ต้องเลือกก่อนยืนยัน</li>
+                                    <li>ข้อมูล Status , OK/NG , สถานที่จัดเก็บ ไม่ถูกต้อง → กด "ยกเลิก" แล้วแก้ไขใน Step 3</li>
+                                </ul>
                             </div>
                         </div>
 
@@ -2763,12 +2797,29 @@
                             <asp:GridView ID="gvConfirmSummary" runat="server"
                                 CssClass="data-table wcf-table" GridLines="None" CellSpacing="0"
                                 style="min-width:1800px;" AutoGenerateColumns="false"
-                                EmptyDataText="ไม่มีรายการ" UseAccessibleHeader="true">
+                                EmptyDataText="ไม่มีรายการ" UseAccessibleHeader="true"
+                                OnRowDataBound="gvConfirmSummary_RowDataBound">
                                 <Columns>
                                     <asp:BoundField DataField="RowNo" HeaderText="#" ItemStyle-Width="35px" />
                                     <asp:BoundField DataField="FixAssetNo" HeaderText="Fix Asset" ItemStyle-Width="100px" />
                                     <asp:BoundField DataField="ControlNo" HeaderText="Control No" ItemStyle-Width="110px" />
                                     <asp:BoundField DataField="ToolNo" HeaderText="Tool No / Model" />
+
+                                    <%--═══ AAD : เลือก Status Use / ผู้รับผิดชอบ (ระบบเลือกให้ตามกฎ Storage) ═══--%>
+                                    <asp:TemplateField HeaderText="Status Use *"
+                                        HeaderStyle-CssClass="hdr-aad zone-divider" ItemStyle-CssClass="col-aad zone-divider">
+                                        <ItemTemplate>
+                                            <asp:HiddenField ID="hfCfmKey" runat="server" Value='<%# Eval("RowKey") %>' />
+                                            <asp:DropDownList ID="ddlStatusUse" runat="server" CssClass="form-control aad-ddl" />
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
+                                    <asp:TemplateField HeaderText="ผู้รับผิดชอบ *"
+                                        HeaderStyle-CssClass="hdr-aad" ItemStyle-CssClass="col-aad">
+                                        <ItemTemplate>
+                                            <asp:DropDownList ID="ddlResponsible" runat="server" CssClass="form-control aad-ddl" />
+                                            <asp:Literal ID="litRuleNote" runat="server" />
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
 
                                     <%--═══ Current ═══--%>
                                     <asp:BoundField DataField="OldDept" HeaderText="Current Dept"
@@ -2807,7 +2858,8 @@
 
                         <div class="wcf-notice">
                             เมื่อยืนยัน เอกสารจะเปลี่ยนเป็น <b>Completed</b> และระบบจะอัปเดตอุปกรณ์ทุกรายการทันที :
-                            ย้าย Cell / Station ไปยังที่จัดเก็บ (Cell / Station ที่ระบุว่า "ใหม่" จะถูกสร้างใน Master) และเปลี่ยนแผนกเป็น AAD (5505)
+                            ย้าย Cell / Station ไปยังที่จัดเก็บ (Cell / Station ที่ระบุว่า "ใหม่" จะถูกสร้างใน Master) ,
+                            เปลี่ยนแผนกเป็น AAD (5505) และบันทึก <b>Status Use / ผู้รับผิดชอบ</b> (เดิม → ใหม่) ของทุกรายการ
                         </div>
                     </div>
 

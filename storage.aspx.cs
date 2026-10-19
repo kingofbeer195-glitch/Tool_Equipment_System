@@ -875,26 +875,42 @@ namespace Tool_Equipment_Control_System
         }
         protected void btnConfirm_Click(object sender, EventArgs e)
         {
+            // ── ตรวจข้อมูล + รายการติดกระบวนการอื่น → ผ่านแล้วเปิด Modal สรุป (อ้างอิง withdraw2) ──
+            if (!ValidateAadConfirm()) return;
+
+            BuildStorageConfirmSummary();
+            ReopenConfirmModal();
+        }
+
+        /// <summary>ยืนยันจาก Modal สรุป — ตรวจซ้ำทั้งหมดอีกรอบ (ระหว่างเปิด Modal ข้อมูลอาจเปลี่ยน) แล้วบันทึก</summary>
+        protected void btnConfirmModalOk_Click(object sender, EventArgs e)
+        {
+            if (!ValidateAadConfirm()) return;
+            DoAadConfirm();
+        }
+
+        /// <summary>ตรวจก่อน AAD Confirm (เดิมอยู่ใน btnConfirm_Click ข้อ 1–6)</summary>
+        private bool ValidateAadConfirm()
+        {
             string empId = txtEmpId.Text.Trim();
             string empName = txtEmpName.Text.Trim();
             DataTable dt = StorageListDT;
-            string status_id = "99";  // AAD Confirm
 
             // ── 1) EMP ID 6 หลัก ──
             if (!System.Text.RegularExpressions.Regex.IsMatch(empId, @"^\d{6}$"))
             {
                 alert_toast("Employee ID ต้องเป็นตัวเลข 6 หลัก", "ข้อมูลไม่ครบ", "warn", "5000");
-                txtEmpId.Focus(); return;
+                txtEmpId.Focus(); return false;
             }
 
             // ── 2) Tel ──
-            if (!ValidateTel()) return;
+            if (!ValidateTel()) return false;
 
             // ── 3) มีรายการ ──
             if (dt == null || dt.Rows.Count == 0)
             {
                 alert_toast("ไม่พบข้อมูลในรายการ Storage List", "ข้อมูลไม่ครบ", "warn", "5000");
-                return;
+                return false;
             }
 
             // ── 4) เก็บค่าจาก grid ก่อนเช็ค ──
@@ -912,15 +928,24 @@ namespace Tool_Equipment_Control_System
                         "scrollWarn_" + DateTime.UtcNow.Ticks,
                         "scrollAndFocusWarning('" + firstRowId + "', " + fieldArg + ");", true);
                 }
-                return;
+                return false;
             }
 
             // ── 6) รายการกำลังยืม ──
             if (duringBorrowCheck())
             {
                 BindStorageList();
-                return;
+                return false;
             }
+
+            return true;
+        }
+
+        /// <summary>บันทึก AAD Confirm (เดิมอยู่ใน btnConfirm_Click ข้อ 7–8)</summary>
+        private void DoAadConfirm()
+        {
+            string empId = txtEmpId.Text.Trim();
+            string status_id = "99";  // AAD Confirm
 
             // ── 7) มี Doc_No → Update / ไม่มี → Insert ──
             string Doc_No = litIssueNo.Text.Trim();
@@ -974,6 +999,112 @@ namespace Tool_Equipment_Control_System
             // ✅ Step 2 : status 99 → 100 + update location (tx เดียว)
             AAD_Confirm_Location(Doc_No);
         }
+
+        private void ReopenConfirmModal()
+        {
+            ScriptManager.RegisterStartupScript(this, GetType(), "reopenConfirm",
+                "document.getElementById('" + pnlConfirmModal.ClientID + "').style.display='flex';", true);
+        }
+
+        private static string ResolveName(DataTable master, string idCol, string nameCol, string id)
+        {
+            if (master == null || string.IsNullOrEmpty(id) || !master.Columns.Contains(idCol)) return "";
+            foreach (DataRow r in master.Rows)
+            {
+                if (r[idCol] == DBNull.Value) continue;
+                if (r[idCol].ToString().Trim() == id.Trim())
+                    return r[nameCol] == DBNull.Value ? "" : r[nameCol].ToString().Trim();
+            }
+            return "";
+        }
+
+        private static string Badge(string text, string cls)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            return "<span class='wcf-badge " + cls + "'>" + HttpUtility.HtmlEncode(text) + "</span>";
+        }
+
+        /// <summary>Modal สรุปก่อน AAD Confirm : รายการ / Status / OK-NG / ซ่อม / Current → Storage</summary>
+        private void BuildStorageConfirmSummary()
+        {
+            DataTable src = StorageListDT;
+            DataTable cellM = GetCellMaster().Copy();
+            DataTable stationM = GetStationMaster().Copy();
+            DataTable reasonM = GetReasonMaster().Copy();
+            DataTable userM = GetUserMaster();
+
+            var dt = new DataTable();
+            foreach (string c in new[] { "FixAssetNo", "ControlNo", "ToolNo",
+                                         "StatusHtml", "OkNgHtml", "RepairStatus", "ConfirmBy", "ServiceUnit", "ReasonName",
+                                         "OldDept", "OldModel", "OldCell", "OldStation",
+                                         "NewDept", "NewCell", "NewStation" })
+                dt.Columns.Add(c, typeof(string));
+            dt.Columns.Add("RowNo", typeof(int));
+
+            int no = 1, nSpare = 0, nNotUse = 0, nNG = 0, nNewLoc = 0;
+            foreach (DataRow r in src.Rows)
+            {
+                if (r.RowState == DataRowState.Deleted) continue;
+                if (GetVal(r, "CompareData") == "Delete") continue;
+
+                DataRow n = dt.NewRow();
+                n["RowNo"] = no++;
+                n["FixAssetNo"] = GetVal(r, "FixAssetNo");
+                n["ControlNo"] = GetVal(r, "ControlNo");
+                n["ToolNo"] = GetVal(r, "ToolNo");
+
+                string st = GetVal(r, "Status_Item");
+                if (st.Equals("Spare", StringComparison.OrdinalIgnoreCase)) nSpare++;
+                else if (st.Equals("Not Use", StringComparison.OrdinalIgnoreCase)) nNotUse++;
+                n["StatusHtml"] = Badge(st, st.Equals("Spare", StringComparison.OrdinalIgnoreCase) ? "wcf-spare" : "wcf-notuse");
+
+                string okng = GetVal(r, "OK_NG");
+                bool isNG = okng.Equals("NG", StringComparison.OrdinalIgnoreCase);
+                if (isNG) nNG++;
+                n["OkNgHtml"] = Badge(okng, isNG ? "wcf-ng" : "wcf-ok");
+
+                string rs = GetVal(r, "Repair_Status");
+                n["RepairStatus"] = (!isNG || rs == "-") ? "-" : rs;
+                string cb = GetVal(r, "RepairConfirm_By");
+                string cbName = ResolveName(userM, "emp_id", "fname", cb);
+                n["ConfirmBy"] = (!isNG || cb == "" || cb == "-") ? "-" : (cbName == "" ? cb : cbName + " (" + cb + ")");
+                n["ServiceUnit"] = GetVal(r, "Service_Unit") == "" ? "-" : GetVal(r, "Service_Unit");
+                string rn = ResolveName(reasonM, "reason_ID", "reason_Name", GetVal(r, "Reason"));
+                n["ReasonName"] = rn == "" ? GetVal(r, "Reason") : rn;
+
+                n["OldDept"] = GetVal(r, "DeptCode");
+                n["OldModel"] = GetVal(r, "ModelName");
+                n["OldCell"] = GetVal(r, "CellName");
+                n["OldStation"] = GetVal(r, "StationName");
+
+                n["NewDept"] = "5505";
+                bool newCell = GetVal(r, "HD_Cell") == "txt";
+                bool newSta = GetVal(r, "HD_Station") == "txt";
+                if (newCell || newSta) nNewLoc++;
+                n["NewCell"] = newCell ? GetVal(r, "Add_Cell") + " (ใหม่)"
+                             : ResolveName(cellM, "location2_id", "location2_name", GetVal(r, "Use_CellId"));
+                n["NewStation"] = newSta ? GetVal(r, "Add_Station") + " (ใหม่)"
+                             : ResolveName(stationM, "location3_id", "location3_name", GetVal(r, "Use_StationId"));
+                dt.Rows.Add(n);
+            }
+
+            string doc = litIssueNo.Text.Trim();
+            litCfmDoc.Text = Server.HtmlEncode(doc == "" || doc == "-" ? "(เอกสารใหม่)" : doc);
+            litCfmSummary.Text =
+                "<div class='wcf-summary'><b>สรุป :</b>" +
+                "<span class='wcf-badge wcf-ok'>✓ จัดเก็บอุปกรณ์ " + dt.Rows.Count + " รายการ</span>" +
+                (nSpare > 0 ? Badge("Spare " + nSpare, "wcf-spare") : "") +
+                (nNotUse > 0 ? Badge("Not Use " + nNotUse, "wcf-notuse") : "") +
+                (nNG > 0 ? Badge("NG " + nNG, "wcf-ng") : "") +
+                (nNewLoc > 0 ? Badge("Cell / Station ใหม่ " + nNewLoc, "wcf-new") : "") +
+                "</div>";
+
+            gvConfirmSummary.DataSource = dt;
+            gvConfirmSummary.DataBind();
+            if (gvConfirmSummary.HeaderRow != null)
+                gvConfirmSummary.HeaderRow.TableSection = TableRowSection.TableHeader;   // ให้ CSS thead ทำงาน
+        }
+
         // ══════════════════════════════════════════════════════════════
         // Modal เหตุผล : ยืนยัน Reject / Cancel (อ้างอิง Borrow2)
         //   ตรวจโหมด / สถานะ / ความยาวเหตุผล แล้วส่งต่อให้ btnReject_Click / btnCancel_Click เดิม

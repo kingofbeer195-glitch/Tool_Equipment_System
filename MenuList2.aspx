@@ -682,16 +682,18 @@
                                 </a>
                             </div>
 
-                            <%--Menu : Storage จัดเก็บอุปกรณ์ (เปิดใช้งาน : ทุก User)--%>
-                            <a href="storage.aspx?issue_no=0" class="menu-card card-orange">
-                                <div class="card-icon">
-                                    <img src="images/storage.png" alt="icon" />
-                                </div>
-                                <div class="card-text">
-                                    <div class="card-name">จัดเก็บอุปกรณ์</div>
-                                    <div class="card-desc">ยื่นคำขอจัดเก็บอุปกรณ์<br/>ที่ Storage</div>
-                                </div>
-                            </a>
+                            <%--Menu : Storage จัดเก็บอุปกรณ์ (เปิดใช้งาน : เฉพาะ Admin)--%>
+                            <div id="menuStorage" runat="server" visible="false">
+                                <a href="storage.aspx?issue_no=0" class="menu-card card-orange">
+                                    <div class="card-icon">
+                                        <img src="images/storage.png" alt="icon" />
+                                    </div>
+                                    <div class="card-text">
+                                        <div class="card-name">จัดเก็บอุปกรณ์</div>
+                                        <div class="card-desc">ยื่นคำขอจัดเก็บอุปกรณ์<br/>ที่ Storage</div>
+                                    </div>
+                                </a>
+                            </div>
 
                             <%--Menu : Tanaoroshi (กำลังพัฒนา : User + Admin)--%>
                             <div id="menuTanaoroshi" runat="server" visible="false">

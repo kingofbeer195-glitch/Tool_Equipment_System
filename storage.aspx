@@ -274,138 +274,143 @@
         }
     </script>
 
-    <%--Drop Down Search--%>
+    <%--Drop Down Search + สลับ Dropdown / Textbox (Manual) — อ้างอิง Borrow2--%>
     <script>
-        function initSelect2() {
-            $('.ddlSearch').select2({
-                width: 'resolve'
-                /*placeholder: 'เลือก Model',*/
-                //allowClear: true
+        /* ═════════ ค้นหาแบบจัดอันดับ (แบบ EditLocation) ═════════ */
+        function normalizeText(s) {
+            return (s || '').toLowerCase().replace(/[.\,\-_\/]/g, '');
+        }
+        function isWordStart(rawText, rawTerm) {
+            var term = normalizeText(rawTerm).trim();
+            if (term === '') return false;
+            var words = (rawText || '').toLowerCase().split(/\s+/);
+            for (var i = 0; i < words.length; i++)
+                if (normalizeText(words[i]).indexOf(term) === 0) return true;
+            return false;
+        }
+        function matchScore(rawText, rawTerm) {
+            var text = normalizeText(rawText);
+            var term = normalizeText(rawTerm).trim();
+            if (term === '') return 0;
+            var idx = text.indexOf(term);
+            if (idx === -1) return -1;
+            if (text === term) return 0;
+            if (idx === 0) return 1;
+            if (isWordStart(rawText, rawTerm)) return 2;
+            return 3 + idx;
+        }
+        function rankMatcher(params, data) {
+            if ($.trim(params.term) === '') return data;
+            if (typeof data.text === 'undefined') return null;
+            if (data.id === '') return null;
+            var score = matchScore(data.text, params.term);
+            if (score < 0) return null;
+            var modified = $.extend({}, data, true);
+            modified._score = score;
+            return modified;
+        }
+        function rankSorter(results) {
+            return results.sort(function (a, b) {
+                var sa = (typeof a._score === 'undefined') ? 999 : a._score;
+                var sb = (typeof b._score === 'undefined') ? 999 : b._score;
+                if (sa !== sb) return sa - sb;
+                return (a.text || '').localeCompare(b.text || '');
             });
         }
+        function highlightResult(data) {
+            if (!data.id) return data.text;
+            var term = $.trim($('.select2-container--open .select2-search__field').val() || '');
+            var text = data.text || '';
+            if (!term) return text;
+            var i = text.toLowerCase().indexOf(term.toLowerCase());
+            if (i < 0) return text;
+            var $s = $('<span></span>');
+            $s.append(document.createTextNode(text.substring(0, i)));
+            $s.append($('<b class="s2-hit"></b>').text(text.substr(i, term.length)));
+            $s.append(document.createTextNode(text.substring(i + term.length)));
+            return $s;
+        }
+        function select2Opts() {
+            return {
+                width: 'resolve',
+                dropdownAutoWidth: true,
+                matcher: rankMatcher,
+                sorter: rankSorter,
+                templateResult: highlightResult,
+                language: { noResults: function () { return 'ไม่พบรายการที่ค้นหา'; } }
+            };
+        }
 
-        // โหลดครั้งแรก
-        $(document).ready(function () {
-            initSelect2();
-        });
+        /* ═════════ โหมด Dropdown / Textbox ต่อช่อง ═════════
+           ค่าโหมดอยู่ใน HiddenField (hfCellMode / hfStationMode)
+           = แหล่งความจริงเดียว — ทั้งฝั่ง Server และ JS อ่านจากตัวนี้               */
+        function applyFieldMode($wrap) {
+            var ddl = $wrap.find('select');
+            var txt = $wrap.find("input[type='text']");
+            var hf = $wrap.find("input[type='hidden']");
+            var btn = $wrap.find('.btnToggle');
+            if (!ddl.length || !txt.length || !hf.length) return;
 
-        // 🔥 สำคัญ: ถ้า GridView Postback
-        Sys.WebForms.PageRequestManager.getInstance().add_endRequest(function () {
-            initSelect2();
-        });
+            // ล้าง select2 เดิมก่อนเสมอ (กันกล่องซ้อน)
+            if (ddl.hasClass('select2-hidden-accessible')) ddl.select2('destroy');
 
-        $(document).on('select2:open', function () {
-            let searchField = document.querySelector('.select2-container--open .select2-search__field');
-
-            if (searchField) {
-                searchField.focus();
-            }
-        });
-    </script>
-
-    <%--Add New Model--%>
-    <script>
-        $(document).on("click", ".btnToggle", function () {
-
-            var container = $(this).closest("div");
-
-            var ddl = container.find("select");
-            var txt = container.find("input[type='text']");
-            var hidden = container.find("input[type='hidden']");
-            var btn = $(this);
-
-
-            if (ddl.is(":visible")) {
-
-                // destroy select2 ก่อนซ่อน
-                if (ddl.hasClass("select2-hidden-accessible")) {
-                    ddl.select2("destroy");
-                }
-
-                ddl.hide();
+            if (hf.val() === 'txt') {
+                ddl.hide();                 // ❌ ไม่ init select2 ในโหมดกรอกเอง
                 txt.show();
-
-                //var selectedText = ddl.find("option:selected").text();
-                //txt.val(selectedText);
-
-                btn.text("-");
-
-                // ✅ เก็บ state
-                hidden.val("txt");
-
+                btn.text('-');
             } else {
-
-                ddl.show();
                 txt.hide();
-
-                btn.text("+");
-
-                // ✅ init select2 กลับ
-                ddl.select2({
-                    width: 'resolve'
-                });
-
-                // ✅ เก็บ state
-                hidden.val("ddl");
-
+                ddl.show();
+                ddl.select2(select2Opts());
+                btn.text('+');
             }
+        }
 
+        function initAllDropdowns() {
+            // 1) ช่องที่มีปุ่มสลับ (Storage : Cell / Station)
+            $('.btnToggle').each(function () {
+                applyFieldMode($(this).closest('div'));
+            });
 
-        });
-
-        function restoreModelState() {
-
-            $(".btnToggle").each(function () {
-
-                var container = $(this).closest("div");
-
-                var ddl = container.find("select");
-                var txt = container.find("input[type='text']");
-                var hidden = container.find("input[type='hidden']");
-                var btn = $(this);
-
-                if (hidden.val() === "txt") {
-
-                    // destroy select2 ก่อนซ่อน
-                    if (ddl.hasClass("select2-hidden-accessible")) {
-                        ddl.select2("destroy");
-                    }
-
-                    ddl.hide();
-                    txt.show();
-                    btn.text("-");
-
-                    // ✅ เก็บ state
-                    hidden.val("txt");
-
-                } else {
-
-                    ddl.show();
-                    txt.hide();
-                    btn.text("+");
-
-                    // ✅ init select2 กลับ
-                    ddl.select2({
-                        width: 'resolve'
-                    });
-
-                    // ✅ เก็บ state
-                    hidden.val("ddl");
-                }
+            // 2) .ddlSearch อื่นที่ไม่มีปุ่มสลับ (เช่น Confirm By)
+            //    เช็คจาก sibling — ddlConfirmBy อยู่ใน <td> ตรง ๆ , closest('div') จะไปเจอ tbl-wrap ที่มีปุ่ม +
+            $('.ddlSearch').each(function () {
+                var $d = $(this);
+                if ($d.siblings('.btnToggle').length) return;
+                if ($d.hasClass('select2-hidden-accessible')) $d.select2('destroy');
+                $d.select2(select2Opts());
             });
         }
 
-        // ✅ run ตอนโหลด
-        $(document).ready(function () {
-            restoreModelState();
+        // ✅ กันโค้ดเก่าที่ยังเรียกชื่อเดิม
+        window.initSelect2 = initAllDropdowns;
+        window.restoreModelState = initAllDropdowns;
+
+        // ── กดปุ่ม + / - ──
+        $(document).on('click', '.btnToggle', function () {
+            if ($(this).is(':disabled')) return;
+            var $wrap = $(this).closest('div');
+            var hf = $wrap.find("input[type='hidden']");
+            hf.val(hf.val() === 'txt' ? 'ddl' : 'txt');
+            applyFieldMode($wrap);
+            if (hf.val() === 'txt') $wrap.find("input[type='text']").focus();
         });
 
-        // ✅ run หลัง UpdatePanel/PostBack
-        if (typeof (Sys) !== "undefined") {
-            Sys.WebForms.PageRequestManager.getInstance().add_endRequest(function () {
-                restoreModelState();
-            });
-        }
+        // ── เปิด dropdown → โฟกัสช่องค้นหา ──
+        $(document).on('select2:open', function () {
+            setTimeout(function () {
+                var f = document.querySelector('.select2-container--open .select2-search__field');
+                if (f) f.focus();
+            }, 0);
+        });
+
+        // ── โหลดครั้งแรก + หลังทุก Partial Postback (ลงทะเบียนครั้งเดียว) ──
+        $(function () {
+            initAllDropdowns();
+            if (typeof (Sys) !== "undefined" && Sys.WebForms && Sys.WebForms.PageRequestManager) {
+                Sys.WebForms.PageRequestManager.getInstance().add_endRequest(initAllDropdowns);
+            }
+        });
     </script>
 
     <%--Show & HideLoading--%>
@@ -884,81 +889,6 @@
         @keyframes barrun{0%{margin-left:-40%;}100%{margin-left:100%;}}
     </style>
 
-    <%--Drop Down Search (rank matcher)--%>
-    <script>
-        // ลบตัวคั่นออกก่อนเทียบ
-        function normalizeText(s) {
-            return (s || '').toLowerCase().replace(/[.\,\-_\/]/g, '');
-        }
-        function isWordStart(rawText, rawTerm) {
-            var term = normalizeText(rawTerm).trim();
-            if (term === '') return false;
-            var words = (rawText || '').toLowerCase().split(/\s+/);
-            for (var i = 0; i < words.length; i++) {
-                if (normalizeText(words[i]).indexOf(term) === 0) return true;
-            }
-            return false;
-        }
-        function matchScore(rawText, rawTerm) {
-            var text = normalizeText(rawText);
-            var term = normalizeText(rawTerm).trim();
-            if (term === '') return 0;
-            var idx = text.indexOf(term);
-            if (idx === -1) return -1;
-            if (text === term) return 0;
-            if (idx === 0) return 1;
-            if (isWordStart(rawText, rawTerm)) return 2;
-            return 3 + idx;
-        }
-        function rankMatcher(params, data) {
-            if ($.trim(params.term) === '') return data;
-            if (typeof data.text === 'undefined') return null;
-            var score = matchScore(data.text, params.term);
-            if (score < 0) return null;
-            var modified = $.extend({}, data, true);
-            modified._score = score;
-            return modified;
-        }
-        function rankSorter(results) {
-            return results.sort(function (a, b) {
-                var sa = (typeof a._score === 'undefined') ? 999 : a._score;
-                var sb = (typeof b._score === 'undefined') ? 999 : b._score;
-                if (sa !== sb) return sa - sb;
-                return (a.text || '').localeCompare(b.text || '');
-            });
-        }
-
-        function initSelect2() {
-            $('.ddlSearch').each(function () {
-                var $el = $(this);
-                if ($el.hasClass('select2-hidden-accessible')) {
-                    $el.select2('destroy');
-                }
-                $el.select2({
-                    width: 'resolve',
-                    dropdownAutoWidth: true,
-                    sorter: rankSorter,
-                    matcher: rankMatcher
-                });
-            });
-        }
-
-        $(document).ready(function () {
-            initSelect2();
-        });
-
-        Sys.WebForms.PageRequestManager.getInstance().add_endRequest(function () {
-            initSelect2();
-        });
-
-        $(document).on('select2:open', function () {
-            setTimeout(function () {
-                var searchField = document.querySelector('.select2-container--open .select2-search__field');
-                if (searchField) searchField.focus();
-            }, 0);
-        });
-    </script>
-     
     <style>
         .badge {
             display: inline-block;
@@ -992,7 +922,7 @@
     <style>
         .grid-headerTopic {
             display: grid;
-            grid-template-columns: 70px auto 180px;
+            grid-template-columns: 70px auto 180px 130px 40px;  /* icon | title | mode | manual | readme */
             grid-template-rows: 50px;
             background-color:#bfcc81;
             border-radius:10px;
@@ -1227,6 +1157,372 @@
     </style>
   
 
+    <%--Select2 : Dropdown Search (แบบ EditLocation)--%>
+    <style>
+        /* กล่องที่ปิดอยู่ : ข้อความที่เลือก "อยู่กลาง" */
+        .select2-container--default .select2-selection--single {
+            height: 28px;
+            font-size: 12px;
+            border: 1px solid #ced4da;
+            border-radius: 5px;
+        }
+        .select2-container--default .select2-selection--single .select2-selection__rendered {
+            line-height: 26px;
+            text-align: center;
+            padding-left: 8px;
+            padding-right: 20px;
+        }
+        .select2-container--default .select2-selection--single .select2-selection__arrow { height: 26px; }
+
+        /* dropdown ที่เปิด : รายการ "ชิดซ้าย" อ่านง่าย */
+        .select2-dropdown { border-color: var(--nv-600, #2980b9) !important; }
+        .select2-results { text-align: left; }
+        .select2-container--default .select2-results__option {
+            font-size: 12px;
+            text-align: left;
+            padding: 5px 10px;
+        }
+        .select2-container--default .select2-results__option--highlighted[aria-selected] {
+            background-color: var(--nv-600, #2980b9) !important;
+        }
+        /*.select2-results__option--highlighted .s2-hit { color: #fff; }*/
+
+        /* กล่องค้นหา */
+        .select2-container--default .select2-search--dropdown .select2-search__field {
+            font-size: 13px;
+            text-align: left;
+            height: 28px;
+            border: 1px solid #c8d6e5 !important;
+            border-radius: 5px;
+            background: #e7f2fb;
+        }
+
+        /* คำที่ตรงกับคำค้น */
+        /*.s2-hit {
+            font-weight: 700;
+            color: #b4412f;
+            background: #fff3cd;
+            border-radius: 2px;
+        }*/
+
+        /* คำที่ตรงกับคำค้น : แถวปกติ → ตัวแดงเข้ม + พื้นเหลืองอ่อน */
+        .s2-hit {
+            font-weight: 700;
+            color: #b4412f;
+            background: #fff3cd;
+            border-radius: 2px;
+            padding: 0 1px;
+        }
+
+        /* แถวที่ hover / เลือก (พื้นน้ำเงิน) → ตัดพื้นเหลืองทิ้ง ใช้ตัวขาว + ขีดเส้นใต้แทน */
+        .select2-container--default .select2-results__option--highlighted[aria-selected] .s2-hit {
+            color: #fff !important;
+            background: transparent !important;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+    </style>
+     
+    <%--READ ME + MANUAL--%>
+    <style>
+        .manual-btn {
+            display:inline-flex; align-items:center; gap:5px;
+            background:#fff; color:var(--ol-700); font-weight:600; font-size:13px;
+            padding:5px 12px; border-radius:20px; text-decoration:none;
+            margin:0 6px; transition:all .15s; cursor:pointer;
+        }
+        .manual-btn:hover { background:var(--ol-700); color:#fff; text-decoration:none; }
+
+        .manual-menu {
+            display:none; position:absolute; top:100%; right:0; margin-top:4px;
+            background:#fff; border:1px solid #d0dbe8; border-radius:8px;
+            box-shadow:0 4px 16px rgba(0,0,0,.15); z-index:2000; min-width:200px;
+            overflow:hidden;
+        }
+        .manual-menu a {
+            display:flex; align-items:center; gap:8px;
+            padding:9px 14px; font-size:13px; color:#2c3e50; text-decoration:none;
+        }
+        .manual-menu a:hover { background:var(--ol-050); color:var(--ol-700); }
+        .manual-menu.show { display:block; }
+
+        .readme-btn {
+            font-size:24px; color:#4f4b4b; cursor:pointer;
+            transition:color .15s, transform .15s;
+        }
+        .readme-btn:hover { color:var(--ol-700); transform:scale(1.1); }
+
+        /* Read Me modal — override h4 aliceblue เดิม */
+        #modal_ReadMe .modal-dialog { width:auto; max-width:640px; margin:40px auto; }
+        #modal_ReadMe .modal-content { border-radius:10px; overflow:hidden; }
+        #modal_ReadMe .modal-header {
+            background:linear-gradient(135deg,var(--ol-800) 0%,var(--ol-600) 100%); border-bottom:none; padding:12px 18px;
+        }
+        #modal_ReadMe .modal-header .close { color:#fff; opacity:.9; text-shadow:none; font-size:26px; }
+        #modal_ReadMe .modal-title { color:#fff !important; font-size:17px; font-weight:700; }
+        #modal_ReadMe .modal-body { padding:18px 22px; font-size:13px; color:#2c3e50; background:#fff; max-height:none; }
+        #modal_ReadMe .rm-item {
+            display:flex; align-items:flex-start; gap:10px; padding:8px 0;
+            border-bottom:1px solid #eef0f4;
+        }
+        #modal_ReadMe .rm-item:last-child { border-bottom:none; }
+        #modal_ReadMe .rm-ico {
+            width:30px; height:30px; flex-shrink:0;
+            display:flex; align-items:center; justify-content:center;
+            background:var(--ol-050); border-radius:6px; color:var(--ol-700); font-size:14px;
+        }
+        #modal_ReadMe .rm-txt strong { color:var(--ol-800); display:block; margin-bottom:2px; }
+        #modal_ReadMe .rm-txt span { color:#6b7a99; }
+
+        /* Upload Manual modal */
+        #modal_UploadManual .modal-dialog { width:auto; max-width:480px; margin:60px auto; }
+        #modal_UploadManual .modal-header {
+            background:linear-gradient(135deg,var(--ol-800) 0%,#d98a1f 100%); border-bottom:none;
+        }
+        #modal_UploadManual .modal-title { color:#fff !important; }
+        #modal_UploadManual .modal-body { background:#fff; max-height:none; padding:18px; }
+    </style>
+
+    <style>
+        /* เมนู Manual : หัวกลุ่ม / เส้นคั่น */
+        .manual-menu .manual-sep{ height:1px; background:var(--border-soft); margin:4px 0; }
+        .manual-menu .manual-grp{ padding:6px 14px 2px; font-size:11px; color:var(--text-sub); font-weight:700; }
+    </style>
+
+    <%--Manual open / menu — อ้างอิง Borrow2--%>
+    <script>
+        // path ผ่าน Virtual Directory /ManualPath (& ต้อง encode = %26)
+        // → \\cptfile02\Pro\PRJ2023008\50_Flow_Manual\01_Manual\08_Tool&Equipment\04_Storage
+        var MANUAL_BASE = '/Tool_Equipment_Control_System/ManualPath/08_Tool%26Equipment/04_Storage/';
+        var MANUAL_FILES = ['Step1', 'Step2', 'Step3', 'Step4', 'SaveDraft', 'SendRequest', 'CancelRequest', 'Confirm', 'Reject'];
+
+        function openManualFile(name) {
+            if (MANUAL_FILES.indexOf(name) < 0) return false;          // whitelist
+            // ?v= กัน browser cache ไฟล์เก่าหลัง Upload ใหม่
+            window.open(MANUAL_BASE + name + '.pdf?v=' + new Date().getTime(), '_blank');
+            hideManualMenu();
+            return false;                                               // กัน postback / href="#"
+        }
+        function hideManualMenu() {
+            var m = document.getElementById('manualMenu');
+            if (m) m.classList.remove('show');
+        }
+        function manualClick(e) {
+            if (e) e.stopPropagation();
+            var m = document.getElementById('manualMenu');
+            if (m) m.classList.toggle('show');
+            return false;
+        }
+        // คลิกที่อื่น → ปิดเมนู
+        document.addEventListener('click', function (e) {
+            var wrap = document.getElementById('manualMenu');
+            var btn = document.querySelector('.manual-btn');
+            if (!wrap) return;
+            if (wrap.contains(e.target) || (btn && btn.contains(e.target))) return;
+            wrap.classList.remove('show');
+        });
+    </script>
+
+    <%--=====================================================================
+    STORAGE — THEME OVERRIDE  (Olive / เขียวมะกอก — ใกล้เคียงโทนเดิม #bfcc81)
+    ────────────────────────────────────────────────────────────────
+    โครงสร้างเดียวกับ Borrow2 (ระบบ token) แต่ใช้สเกลสีโทนเดิมของหน้า Storage
+    ปรับความสว่าง : พื้นหลังอ่อนลง / หัวตาราง-ตัวอักษรเข้มขึ้น / สีสถานะนุ่มขึ้น
+    ย้อนกลับ: ลบบล็อกนี้ทิ้ง หน้าจะกลับเป็นสีเดิมทันที
+    =====================================================================--%>
+    <style>
+        :root {
+            /* Olive scale (เดิม : header #bfcc81 , action bar #d3dda6 , card-header #e8ffec) */
+            --ol-900:#2f3a12; --ol-800:#3d4c19; --ol-700:#566a26; --ol-600:#6f8736;
+            --ol-500:#8ea24f; --ol-200:#d4ddae; --ol-100:#e7edcf; --ol-050:#f4f7e8;
+            /* input (คงฟ้าอ่อนแบบเดิม #00a7ff40 แต่สว่าง/นุ่มขึ้น) */
+            --field-focus-bg:#e7f2fb; --field-focus-ring:rgba(111,135,54,.20);
+            /* neutral */
+            --text:#2c3e50; --text-sub:#5b6b5d; --border:#d6dcc4; --border-soft:#e6ebd8;
+            --surface:#ffffff; --surface-2:#f8faf2;
+            /* semantic */
+            --ok:#2e9e5b;     --ok-bg:#e6f6ec;     --ok-line:#b7e2c6;
+            --warn:#d98a1f;   --warn-bg:#fdf3e2;   --warn-line:#f2d9a8;
+            --danger:#d64b3d; --danger-bg:#fbeceb; --danger-line:#f2c2bd;
+            --info:#2980b9;   --info-bg:#eaf3fb;   --info-line:#bcd9ef;
+            /* amber soft (แทนเหลืองสะท้อน #e4ff5d) */
+            --amber-soft-bg:#fdf6e3; --amber-soft-line:#ecd9a6; --amber-soft-text:#7a5b16;
+            /* shadow */
+            --sh-1:0 1px 4px rgba(61,76,25,.08); --sh-2:0 4px 14px rgba(61,76,25,.14);
+        }
+
+        /* ===== HEADER ===== */
+        .grid-headerTopic{ background-color:var(--ol-200) !important; }
+        .header_Style1{ color:var(--ol-800) !important; }
+
+        /* ===== CARD ===== */
+        .card{ box-shadow:var(--sh-1) !important; }
+        .card-header{
+            background:var(--ol-050) !important;
+            border-bottom:1px solid var(--border) !important;
+            color:var(--ol-800) !important;
+        }
+        .card-header .badge{ background:var(--ol-600) !important; color:#fff !important; }
+
+        /* ===== FORM / INPUT ===== */
+        .form-group input:focus,
+        .form-group select:focus{
+            border-color:var(--ol-600) !important;
+            box-shadow:0 0 0 3px var(--field-focus-ring) !important;
+        }
+        .form-group input[readonly]{ background:var(--surface-2) !important; }
+        input[style*="00a7ff40"]{ background-color:var(--field-focus-bg) !important; }
+
+        /* ===== BUTTONS ===== */
+        .btn-primary{ background:var(--ol-600) !important; }
+        .btn-primary:hover{ background:var(--ol-700) !important; }
+        .btn-success{ background:var(--ok) !important; }
+        .btn-success:hover{ background:#25824a !important; }
+        .btn-warning{ background:var(--warn) !important; }
+        .btn-warning:hover{ background:#c07a17 !important; }
+        .btn-danger{ background:var(--danger) !important; }
+        .btn-danger:hover{ background:#c0392f !important; }
+        .btn-secondary{ background:#7c8896 !important; }
+        .btn-secondary:hover{ background:#68727e !important; }
+
+        /* ===== STATUS BADGE ===== */
+        .status-draft{     background:var(--warn-bg) !important; color:var(--warn) !important; border:1px solid var(--warn-line) !important; }
+        .status-approve{   background:var(--info-bg) !important; color:#245177 !important; border:1px solid var(--info-line) !important; }
+        .status-confirm{   background:#f2e9f7 !important; color:#8b3fa0 !important; border:1px solid #d8b8e4 !important; }
+        .status-completed{ background:var(--ok-bg) !important; color:var(--ok) !important; border:1px solid var(--ok-line) !important; }
+        .status-cancel{    background:#ececec !important; color:#4c4c4c !important; border:1px solid #cfcfcf !important; }
+        .status-borrow{    background:#e4e8d2 !important; color:var(--ol-700) !important; border:1px solid #cbd3a8 !important; }
+
+        /* ===== TABLES ===== */
+        table.data-table thead tr{ background:var(--ol-800) !important; }
+        table.data-table tbody tr:hover{ background:var(--ol-100) !important; }
+        table.data-table tbody tr:nth-child(even){ background:var(--surface-2) !important; }
+        table.data-table tbody tr:nth-child(even):hover{ background:var(--ol-100) !important; }
+
+        /* ===== ALERT ===== */
+        .alert-info{    background:var(--info-bg) !important; color:#245177 !important; border-left:4px solid var(--info) !important; }
+        .alert-success{ background:var(--ok-bg) !important;  color:#1e7a45 !important; border-left:4px solid var(--ok) !important; }
+        .alert-danger{  background:var(--danger-bg) !important; color:#8f2b22 !important; border-left:4px solid var(--danger) !important; }
+
+        /* ===== ACTION BAR ===== */
+        .action-bar{
+            background:rgba(212,221,174,.78) !important;
+            box-shadow:var(--sh-2) !important;
+            border:1px solid var(--border) !important;
+        }
+
+        /* ===== NOTE : เหลืองอำพันนุ่ม (แทน #e4ff5d) ===== */
+        .page-note .badge[style*="e4ff5d"],
+        .card-header .badge[style*="e4ff5d"]{
+            background:var(--amber-soft-bg) !important;
+            color:var(--amber-soft-text) !important;
+            border:1px solid var(--amber-soft-line) !important;
+            text-shadow:none !important;
+        }
+        .page-note .badge[style*="ff5d5d"],
+        .page-note .badge[style*="ff5d5dd4"]{ background:var(--danger) !important; }
+
+        /* ===== BADGE (Spare / Normal / ติดกระบวนการ) ===== */
+        .badge-normal{ background-color:var(--ok) !important; }
+        .badge-spare{ background-color:#e9b949 !important; color:#3d2f00 !important; }
+        .badge-borrowing{ background-color:var(--danger) !important; }
+        .badge-issue{ background:var(--ol-100) !important; border:1px solid var(--ol-600) !important; }
+
+        /* ===== SELECT2 ===== */
+        .select2-dropdown { border-color: var(--ol-600) !important; }
+        .select2-container--default .select2-results__option--highlighted[aria-selected] { background-color: var(--ol-600) !important; }
+        .select2-container--default .select2-search--dropdown .select2-search__field{ background:var(--field-focus-bg) !important; }
+
+        /* ===== TOAST ===== */
+        .toast.success{ background:var(--ok) !important; }
+        .toast.error{   background:var(--danger) !important; }
+        .toast.warn{    background:var(--warn) !important; }
+        .toast.info{    background:var(--info) !important; }
+
+        /* ===== Loading overlay ===== */
+        .overlayContent .spin-ring{ border-top-color:var(--ol-600) !important; }
+        .ov-bar > i{ background:linear-gradient(90deg,var(--ol-700),var(--ok)) !important; }
+    </style>
+
+    <%--Step 2 : Status → badge ลิงก์ไปเอกสารที่ติดกระบวนการ (อ้างอิง Borrow2)--%>
+    <style>
+        a.badge.badge-link { text-decoration: none; cursor: pointer; }
+        a.badge.badge-link:hover { filter: brightness(.9); text-decoration: underline; color: #fff; }
+        .proc-doc { margin-top: 3px; font-size: 11px; color: var(--danger); font-weight: 600; }
+
+        /* แถวที่ติดกระบวนการ → พื้นแดงอ่อน */
+        #<%= gvSearchResult.ClientID %> tr.row-locked td { background: #fbeceb !important; }
+    </style>
+
+    <%--Step 3 : Storage List — รูปแบบตารางเดียวกับ Borrow2 (Fix Header + Fix คอลัมน์ , เส้นดำ 1px)--%>
+    <style>
+        /* Fix คอลัมน์แนว X ( # , Fix Asset , Control No , Tool No / Model , No )
+           ค่า left คำนวณด้วย JS (fixStickyColumns) ตามความกว้างจริงของคอลัมน์ก่อนหน้า
+           Remove / Detail / Pic ไม่ Fix → เลื่อนลอดใต้คอลัมน์ที่ Fix */
+        table.fx-table { border-collapse: separate !important; border-spacing: 0; }
+        table.fx-table td.fx-col { position: sticky; z-index: 2; background-color: #ffffff; }
+        table.fx-table th.fx-col { position: sticky; top: 0; z-index: 6; }     /* มุมซ้ายบน : อยู่เหนือทั้งแถวและคอลัมน์ */
+
+        /* เส้นขอบสีดำ 1px — ระหว่างรายการ = เส้นประ / แบ่งโซน = เส้นทึบหนา */
+        .step3-wrap { border: 1px solid #000 !important; }
+        table.fx-table { border: 0 !important; }
+        table.fx-table th, table.fx-table td {
+            border-top: 0 !important; border-left: 0 !important;
+            border-right: 1px solid #000 !important;
+        }
+        table.fx-table th { border-bottom: 1px solid #000 !important; }
+        table.fx-table td { border-bottom: 1px dashed #000 !important; }
+        table.fx-table tr > :last-child { border-right: 0 !important; }
+        table.fx-table tr:last-child > td { border-bottom: 0 !important; }
+        table.fx-table .zone-divider { border-left: 0 !important; }            /* ใช้เส้นขวาของคอลัมน์ก่อนหน้าแทน */
+        table.fx-table th.zone-end, table.fx-table td.zone-end { border-right: 4px solid var(--ol-800) !important; }   /* ปิดโซนหลัก */
+        table.fx-table th.zone-sub, table.fx-table td.zone-sub { border-right: 2px solid var(--ol-800) !important; }   /* ปิดโซนย่อย */
+        table.fx-table td.fx-toolno { max-width: 220px; white-space: normal; word-break: break-word; }
+
+        /* โซน : Current / Request / Storage — สีโทนเดิม ปรับให้สว่าง-นุ่มขึ้น */
+        .hdr-current { background-color:var(--ol-700) !important; color:#fff !important; font-weight:700; text-align:center; padding:4px; }
+        .col-current { background-color:var(--ol-050) !important; color:var(--text-sub) !important; font-size:12px; text-align:center; }
+        .hdr-request { background-color:var(--ok) !important; }
+        .col-request { background-color:var(--ok-bg) !important; }
+        .hdr-storage { background-color:#d9665c !important; }
+        .col-storage { background-color:var(--danger-bg) !important; }
+    </style>
+
+    <%--Step 3 : Fix คอลัมน์แนว X (อ้างอิง Borrow2)--%>
+    <script>
+        function fixStickyColumns() {
+            var tables = document.querySelectorAll('table.fx-table');
+            for (var t = 0; t < tables.length; t++) {
+                var tbl = tables[t];
+                if (!tbl.rows.length) continue;
+                var head = tbl.rows[0], n = head.cells.length, left = 0;
+                for (var i = 0; i < n; i++) {
+                    var hc = head.cells[i];
+                    if (!/(^|\s)fx-col(\s|$)/.test(hc.className)) continue;
+                    for (var r = 0; r < tbl.rows.length; r++) {
+                        var row = tbl.rows[r];
+                        if (row.cells.length !== n) continue;            // แถวว่าง / colspan
+                        row.cells[i].style.left = left + 'px';
+                    }
+                    left += hc.getBoundingClientRect().width;
+                }
+            }
+        }
+        (function () {
+            function run() { setTimeout(fixStickyColumns, 0); }
+            var hooked = false;
+            function hookAjax() {                                       // Sys มีหลัง ScriptManager โหลดแล้ว
+                if (hooked || !(window.Sys && Sys.WebForms && Sys.WebForms.PageRequestManager)) return;
+                Sys.WebForms.PageRequestManager.getInstance().add_endRequest(run);
+                hooked = true;
+            }
+            function init() { hookAjax(); run(); }
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+            window.addEventListener('load', init);
+            window.addEventListener('resize', run);
+        })();
+    </script>
+
     <asp:ScriptManager runat="server" ID="scriptManager1" EnablePageMethods="true"></asp:ScriptManager>
 
     <asp:UpdateProgress ID="UpdateProgress1" runat="server" AssociatedUpdatePanelID="UP1">
@@ -1278,6 +1574,44 @@
                                 font-weight: 600;
                                 color: #4f4b4b;">
                     </asp:Label>
+
+                    <%-- ช่องที่ 1 : Manual (เปิดได้ทุกไฟล์ / Admin มี Upload) --%>
+                    <div style="display:flex; align-items:center; justify-content:center; position:relative;">
+                        <a href="#" class="manual-btn" onclick="return manualClick(event);" title="คู่มือการใช้งาน">
+                            <span class="glyphicon glyphicon-book"></span> Manual
+                        </a>
+
+                        <div id="manualMenu" class="manual-menu">
+                            <div class="manual-grp">ผู้ร้องขอ</div>
+                            <a href="#" onclick="return openManualFile('Step1');"><span class="glyphicon glyphicon-user"></span> Step 1 : Requester</a>
+                            <a href="#" onclick="return openManualFile('Step2');"><span class="glyphicon glyphicon-search"></span> Step 2 : Search &amp; Add</a>
+                            <a href="#" onclick="return openManualFile('Step3');"><span class="glyphicon glyphicon-list-alt"></span> Step 3 : Storage List</a>
+                            <a href="#" onclick="return openManualFile('Step4');"><span class="glyphicon glyphicon-comment"></span> Step 4 : Comment</a>
+                            <a href="#" onclick="return openManualFile('SaveDraft');"><span class="glyphicon glyphicon-pencil"></span> Save Draft</a>
+                            <a href="#" onclick="return openManualFile('SendRequest');"><span class="glyphicon glyphicon-send"></span> Send Request</a>
+                            <a href="#" onclick="return openManualFile('CancelRequest');"><span class="glyphicon glyphicon-remove-circle"></span> Cancel</a>
+                            <div class="manual-sep"></div>
+                            <div class="manual-grp">AAD</div>
+                            <a href="#" onclick="return openManualFile('Confirm');"><span class="glyphicon glyphicon-ok-sign"></span> AAD Confirm</a>
+                            <a href="#" onclick="return openManualFile('Reject');"><span class="glyphicon glyphicon-remove-sign"></span> Reject</a>
+
+                            <asp:PlaceHolder ID="phManualUpload" runat="server" Visible="false">
+                                <div class="manual-sep"></div>
+                                <a href="#" onclick="$('#modal_UploadManual').modal('show'); hideManualMenu(); return false;">
+                                    <span class="glyphicon glyphicon-upload"></span> Upload Manual
+                                </a>
+                            </asp:PlaceHolder>
+                        </div>
+                    </div>
+
+                    <%-- ช่องที่ 2 : Read Me --%>
+                    <div style="display:flex; align-items:center; justify-content:start;">
+                        <span class="glyphicon glyphicon-question-sign readme-btn"
+                            title="วิธีใช้งาน" onclick="$('#modal_ReadMe').modal('show');"></span>
+                    </div>
+
+                    <%-- HiddenField : บอก JS ว่าเป็น admin ไหม --%>
+                    <asp:HiddenField ID="hdIsAdmin" runat="server" Value="0" />
                 </div>
 
                 <%--=====================================================--%>
@@ -1504,16 +1838,12 @@
                                             </ItemTemplate>
                                         </asp:TemplateField>
 
-                                        <%--Display Status--%>
-                                        <asp:TemplateField HeaderText="Status" HeaderStyle-CssClass="headerGv1" ItemStyle-Width="140px"
+                                        <%--Display Status : ติดกระบวนการ AAD1–AAD4 → badge แดง + ลิงก์เอกสาร (อ้างอิง Borrow2)--%>
+                                        <asp:TemplateField HeaderText="Status" HeaderStyle-CssClass="headerGv1" ItemStyle-Width="150px"
                                             ItemStyle-CssClass="rowGv1" ItemStyle-HorizontalAlign="Center">
-                                            <ItemTemplate>   
+                                            <ItemTemplate>
                                                 <asp:HiddenField ID="hdstatusId" runat="server" Value='<%# Eval("status_id") %>' />
-    
-                                                <span class='badge <%# GetStatusBadgeClass(Eval("DisplayStatus").ToString()) %>'>
-                                                    <%# Eval("DisplayStatus") %>
-                                                </span>
-
+                                                <%# BuildStatusBadge(Eval("DisplayStatus"), Eval("ProcUrl"), Eval("ProcDoc")) %>
                                             </ItemTemplate>
                                         </asp:TemplateField>
                                         
@@ -1572,10 +1902,10 @@
 
                     <div class="card-body" style="margin-bottom:10px;">
                         
-                        <%--Storage List--%>
-                        <div class="tbl-wrap" style="max-height: 350px;">
+                        <%--Storage List : Fix Header + Fix คอลัมน์ ( # , Fix Asset , Control No , Tool No , No ) — อ้างอิง Borrow2--%>
+                        <div class="tbl-wrap step3-wrap" style="max-height: 350px;">
                             <asp:GridView ID="gvStorageList" runat="server"
-                                CssClass="data-table change-table fixed-header"
+                                CssClass="data-table change-table fixed-header fx-table"
                                 style="min-width:2400px;"
                                 AutoGenerateColumns="false"
                                 OnRowDataBound="gvStorageList_RowDataBound"
@@ -1588,16 +1918,8 @@
 
                                     <%--Item No--%>
                                     <asp:BoundField  DataField="RowNo"  
-                                                     HeaderText="#" HeaderStyle-CssClass="headerGv1"
-                                                     ItemStyle-CssClass="rowGv1" ItemStyle-Width="40px" />
-
-                                    <%--Check Box--%>
-                                 <%--   <asp:TemplateField HeaderText="Check" ItemStyle-Width="65px"
-                                        HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1">
-                                        <ItemTemplate>
-                                            
-                                        </ItemTemplate>
-                                    </asp:TemplateField>--%>
+                                                     HeaderText="#" HeaderStyle-CssClass="headerGv1 fx-col"
+                                                     ItemStyle-CssClass="rowGv1 fx-col" ItemStyle-Width="40px" />
 
                                     <%--Remove--%>
                                     <asp:TemplateField HeaderText="Remove" ItemStyle-Width="65px"
@@ -1637,19 +1959,37 @@
 
                                     <%--Fix Asset--%>
                                     <asp:BoundField DataField="FixAssetNo" ItemStyle-Width="110px"
-                                        HeaderText="Fix Asset" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
+                                        HeaderText="Fix Asset" HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv1 fx-col" />
 
                                     <%--Control No--%>
                                     <asp:BoundField DataField="ControlNo" ItemStyle-Width="120px"
-                                        HeaderText="Control No" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
+                                        HeaderText="Control No" HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv1 fx-col" />
 
                                     <%--Tool No--%>
                                     <asp:BoundField DataField="ToolNo"
-                                        HeaderText="Tool No / Model" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv_toolNo" />
+                                        HeaderText="Tool No / Model" HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv_toolNo fx-col fx-toolno" />
 
                                     <%--Sub--%>
                                     <asp:BoundField DataField="ToolSub" ItemStyle-Width="45px"
-                                        HeaderText="No" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />                                     
+                                        HeaderText="No" HeaderStyle-CssClass="headerGv1 fx-col zone-end" ItemStyle-CssClass="rowGv1 fx-col zone-end" />
+
+                                    <%--═══════════ โซน CURRENT (ย้ายมาก่อน Status , label อย่างเดียว) ═══════════--%>
+
+                                    <%--Current Dept--%>
+                                    <asp:BoundField DataField="DeptCode" ItemStyle-Width="100px" HeaderText="Current Dept"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--Current Model--%>
+                                    <asp:BoundField DataField="ModelName" ItemStyle-Width="130px" HeaderText="Current Model"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--Current Cell--%>
+                                    <asp:BoundField DataField="CellName" ItemStyle-Width="150px" HeaderText="Current Cell"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--Current Station--%>
+                                    <asp:BoundField DataField="StationName" ItemStyle-Width="150px" HeaderText="Current Station"
+                                        HeaderStyle-CssClass="hdr-current zone-end" ItemStyle-CssClass="col-current zone-end" />
 
                                     <%--═══════════ โซน Status ═══════════--%>
 
@@ -1657,7 +1997,7 @@
                                     <asp:TemplateField HeaderText="Status" ItemStyle-Width="120px"
                                         HeaderStyle-CssClass="hdr-request zone-divider" ItemStyle-CssClass="col-request zone-divider">
                                         <ItemTemplate>
-                                            <div class="d-flex align-items-center"">
+                                            <div class="d-flex align-items-center">
                                                 <asp:DropDownList ID="ddlStatus" runat="server"
                                                     CssClass="form-control form-control-sm ddl_edit" Style="width:100%;">
 
@@ -1672,7 +2012,7 @@
 
                                     <%--OK/NG--%>
                                     <asp:TemplateField HeaderText="OK/NG" ItemStyle-Width="120px"
-                                        HeaderStyle-CssClass="hdr-request" ItemStyle-CssClass="col-request">
+                                        HeaderStyle-CssClass="hdr-request zone-sub" ItemStyle-CssClass="col-request zone-sub">
                                         <ItemTemplate>
                                             <div class="d-flex align-items-center">
                                                 <asp:DropDownList ID="ddlOKNG" runat="server"
@@ -1703,7 +2043,7 @@
 
                                     <%--Confirm By (ddl + search)--%>
                                     <asp:TemplateField HeaderText="Confirm By" ItemStyle-Width="170px"
-                                        HeaderStyle-CssClass="hdr-request" ItemStyle-CssClass="col-request">
+                                        HeaderStyle-CssClass="hdr-request zone-sub" ItemStyle-CssClass="col-request zone-sub">
                                         <ItemTemplate>
                                             <asp:DropDownList ID="ddlConfirmBy" runat="server"
                                                 CssClass="form-control form-control-sm ddl_edit ddlSearch" Style="width:100%;">
@@ -1713,7 +2053,7 @@
 
                                     <%--Service Unit--%>
                                     <asp:TemplateField HeaderText="Service Unit" ItemStyle-Width="170px" 
-                                        HeaderStyle-CssClass="hdr-request zone-divider" ItemStyle-CssClass="col-request zone-divider">                                    
+                                        HeaderStyle-CssClass="hdr-request zone-divider zone-sub" ItemStyle-CssClass="col-request zone-divider zone-sub">                                    
                                         <ItemTemplate>                                    
                                             <asp:TextBox ID="txt_service" runat="server" 
                                                 CssClass="form-control"
@@ -1726,7 +2066,7 @@
 
                                     <%--Reason--%>
                                     <asp:TemplateField HeaderText="เหตุผล" ItemStyle-Width="170px" 
-                                        HeaderStyle-CssClass="hdr-request zone-divider" ItemStyle-CssClass="col-request zone-divider">                                    
+                                        HeaderStyle-CssClass="hdr-request zone-divider zone-end" ItemStyle-CssClass="col-request zone-divider zone-end">                                    
                        
                                         <ItemTemplate>                                    
                                             <asp:DropDownList ID="ddlReason" runat="server"
@@ -1735,14 +2075,9 @@
                                         </ItemTemplate>
                                     </asp:TemplateField>
 
-                                    
-                                                                        
+                                    <%--═══════════ โซน STORAGE (3 ช่อง) ═══════════--%>
 
-                                    
-
-                                    <%--═══════════ โซน USE (4 ช่อง) ═══════════--%>
-
-                                    <%--Storage Dept = txtDeptCode  (เริ่มโซน → zone-divider)--%>
+                                    <%--Storage Dept = txtDeptCode  (เริ่มโซน)--%>
                                     <asp:TemplateField HeaderText="Storage : Dept"
                                         HeaderStyle-CssClass="hdr-storage zone-divider" ItemStyle-CssClass="col-storage zone-divider"
                                         ItemStyle-Width="90px">
@@ -1784,25 +2119,6 @@
                                             </div>
                                         </ItemTemplate>
                                     </asp:TemplateField>
-
-                                    <%--═══════════ โซน CURRENT (4 ช่อง, label อย่างเดียว) ═══════════--%>
-
-                                    <%--Current Dept (เริ่มโซน → zone-divider)--%>
-                                    <asp:BoundField DataField="DeptCode" ItemStyle-Width="80px" HeaderText="Dept"
-                                        HeaderStyle-CssClass="headerGv1 zone-divider" ItemStyle-CssClass="rowGv1 zone-divider" />
-
-                                    <%--Current Model--%>
-                                    <asp:BoundField DataField="ModelName" ItemStyle-Width="130px" HeaderText="Model"
-                                        HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
-
-                                    <%--Current Cell--%>
-                                    <asp:BoundField DataField="CellName" ItemStyle-Width="170px" HeaderText="Cell"
-                                        HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
-
-                                    <%--Current Station--%>
-                                    <asp:BoundField DataField="StationName" ItemStyle-Width="150px" HeaderText="Station"
-                                        HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
-                                    
 
                                 </Columns>
 
@@ -2085,9 +2401,97 @@
                 </div>
             </div>    
 
+            <%-- Modal Read me --%>
+            <div class="modal fade" id="modal_ReadMe" tabindex="-1" role="dialog">
+                <div class="modal-dialog" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                            <h4 class="modal-title">📖 วิธีใช้งานหน้านี้</h4>
+                        </div>
+                        <div class="modal-body">
+                            <div class="rm-item">
+                                <div class="rm-ico"><span class="glyphicon glyphicon-user"></span></div>
+                                <div class="rm-txt"><strong>Step 1 : Requester</strong>
+                                    <span>กรอกรหัสพนักงาน (6 หลัก) และเบอร์ติดต่อ ระบบจะดึงชื่อ/แผนกจาก HRMS ให้อัตโนมัติ</span></div>
+                            </div>
+                            <div class="rm-item">
+                                <div class="rm-ico"><span class="glyphicon glyphicon-search"></span></div>
+                                <div class="rm-txt"><strong>Step 2 : Search & Add</strong>
+                                    <span>ค้นหาอุปกรณ์ด้วย Fix Asset, Control No, Tool No แล้วกด Add — รายการที่ติดกระบวนการอื่น (AAD1–AAD4) จะเป็นสีแดง คลิกที่ Status เพื่อเปิดเอกสารนั้น</span></div>
+                            </div>
+                            <div class="rm-item">
+                                <div class="rm-ico"><span class="glyphicon glyphicon-list-alt"></span></div>
+                                <div class="rm-txt"><strong>Step 3 : Storage List</strong>
+                                    <span>ระบุ Status (Spare / Not Use), OK/NG, การซ่อม และสถานที่จัดเก็บ (Cell / Station) — พิมพ์ค้นหาใน Dropdown ได้ กดปุ่ม + เพื่อกรอกค่าใหม่เอง</span></div>
+                            </div>
+                            <div class="rm-item">
+                                <div class="rm-ico"><span class="glyphicon glyphicon-comment"></span></div>
+                                <div class="rm-txt"><strong>Step 4 : Comment</strong>
+                                    <span>เลือกเหตุผลและกรอกรายละเอียดการจัดเก็บ</span></div>
+                            </div>
+                            <div class="rm-item">
+                                <div class="rm-ico"><span class="glyphicon glyphicon-floppy-disk"></span></div>
+                                <div class="rm-txt"><strong>บันทึก / ส่งรายการ</strong>
+                                    <span>Save Draft เก็บชั่วคราว, Send Request ส่งให้อนุมัติ ปุ่มที่แสดงจะขึ้นกับสถานะและสิทธิ์ผู้ใช้</span></div>
+                            </div>
+                            <div class="rm-item">
+                                <div class="rm-ico"><span class="glyphicon glyphicon-book"></span></div>
+                                <div class="rm-txt"><strong>Manual</strong>
+                                    <span>กดปุ่ม Manual มุมขวาบน เพื่อเปิดคู่มือ (PDF) ของแต่ละขั้นตอน</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <%-- Modal Upload Manual (Admin เท่านั้น) --%>
+            <div class="modal fade" id="modal_UploadManual" tabindex="-1" role="dialog">
+                <div class="modal-dialog" role="document" >
+                    <div class="modal-content" >
+                        <div class="modal-header">
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                            <h4 class="modal-title"><span class="glyphicon glyphicon-upload"></span>&nbsp;Upload Manual (PDF)</h4>
+                        </div>
+                        <div class="modal-body">
+                            <p style="font-size:12px; color:#666; margin-bottom:10px;">
+                                เลือกคู่มือที่ต้องการแทนที่ แล้วเลือกไฟล์ PDF — <b>ไฟล์เดิมจะถูกแทนที่</b>
+                            </p>
+                            <asp:DropDownList ID="ddlManualFile" runat="server" CssClass="form-control"
+                                Style="height:auto !important; padding:6px; margin-bottom:8px;">
+                                <asp:ListItem Value="Step1" Text="Step 1 : Requester (Step1.pdf)" />
+                                <asp:ListItem Value="Step2" Text="Step 2 : Search &amp; Add (Step2.pdf)" />
+                                <asp:ListItem Value="Step3" Text="Step 3 : Storage List (Step3.pdf)" />
+                                <asp:ListItem Value="Step4" Text="Step 4 : Comment (Step4.pdf)" />
+                                <asp:ListItem Value="SaveDraft" Text="Save Draft (SaveDraft.pdf)" />
+                                <asp:ListItem Value="SendRequest" Text="Send Request (SendRequest.pdf)" />
+                                <asp:ListItem Value="CancelRequest" Text="Cancel (CancelRequest.pdf)" />
+                                <asp:ListItem Value="Confirm" Text="AAD Confirm (Confirm.pdf)" />
+                                <asp:ListItem Value="Reject" Text="Reject (Reject.pdf)" />
+                            </asp:DropDownList>
+                            <asp:FileUpload ID="fuManual" runat="server" accept="application/pdf"
+                                CssClass="form-control" Style="height:auto !important; padding:6px;" />
+                            <asp:Label ID="lblUploadMsg" runat="server" Style="display:block; margin-top:8px; font-size:12px;" />
+                        </div>
+                        <div class="modal-footer" style="border-top:1px solid #eee;">
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal" style="text-shadow:none;">Cancel</button>
+                            <asp:LinkButton ID="btnUploadManual" runat="server" CssClass="btn btn-warning"
+                                OnClick="btnUploadManual_Click" Style="text-shadow:none;">
+                                <span class="glyphicon glyphicon-upload"></span>&nbsp;Upload
+                            </asp:LinkButton>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </ContentTemplate>
 
         <Triggers>
+            <asp:PostBackTrigger ControlID="btnUploadManual" />
         </Triggers>
 
     </asp:UpdatePanel> 

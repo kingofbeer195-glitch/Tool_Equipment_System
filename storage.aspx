@@ -1,4 +1,4 @@
-﻿<%@ Page Title="" Language="C#" MasterPageFile="~/Tool_Equipment.Master"
+<%@ Page Title="" Language="C#" MasterPageFile="~/Tool_Equipment.Master"
     AutoEventWireup="true" CodeFile="storage.aspx.cs"
     Inherits="Tool_Equipment_Control_System.Storage" EnableEventValidation="false" %>
 
@@ -43,7 +43,7 @@
 
     <%--Alert : toast--%>
     <script>                                   
-        (function () {  
+        (function () {
             function ensureContainer() {
                 let c = document.getElementById('toast-container');
                 if (!c) {
@@ -145,7 +145,7 @@
             ////////var requestId = document.getElementById('<%=txtEmpId.ClientID%>').value;
             ////////var empId = document.getElementById('<%= txtEmpId.ClientID %>').value;
             //if (empId.length === 6) {
-                //getDataHRMS(empId, 1); // ✅ เรียก AJAX โดยตรง
+            //getDataHRMS(empId, 1); // ✅ เรียก AJAX โดยตรง
 
                 <%--__doPostBack('<%=btnHidden.UniqueID%>', requestId);--%>
             //}
@@ -181,12 +181,12 @@
 
                         // ✅ SET ค่า TextBox WebForms
                         document.getElementById('<%= txtEmpName.ClientID %>').value = dataUser.GNAME_ENG + " " + dataUser.FNAME_ENG;
-                        document.getElementById('<%= txtPosition.ClientID %>').value = dataUser.POSN_ENAME;                        
-                        document.getElementById('<%= txtDept.ClientID %>').value = dataUser.DEPT_ABB_NAME;                        
+                        document.getElementById('<%= txtPosition.ClientID %>').value = dataUser.POSN_ENAME;
+                        document.getElementById('<%= txtDept.ClientID %>').value = dataUser.DEPT_ABB_NAME;
 
                         //Hidden Field
-                        document.getElementById('<%= hdtxtBand.ClientID %>').value = dataUser.BAND;                        
-                        document.getElementById('<%= hdtxtEmail.ClientID %>').value = dataUser.EMAIL;                           
+                        document.getElementById('<%= hdtxtBand.ClientID %>').value = dataUser.BAND;
+                        document.getElementById('<%= hdtxtEmail.ClientID %>').value = dataUser.EMAIL;
 
                     }
                     else {
@@ -1294,7 +1294,7 @@
         // path ผ่าน Virtual Directory /ManualPath (& ต้อง encode = %26)
         // → \\cptfile02\Pro\PRJ2023008\50_Flow_Manual\01_Manual\08_Tool&Equipment\04_Storage
         var MANUAL_BASE = '/Tool_Equipment_Control_System/ManualPath/08_Tool%26Equipment/04_Storage/';
-        var MANUAL_FILES = ['Step1', 'Step2', 'Step3', 'Step4', 'SaveDraft', 'SendRequest', 'CancelRequest', 'Confirm', 'Reject'];
+        var MANUAL_FILES = ['Step1', 'Step2', 'Step3', 'SaveDraft', 'CancelRequest', 'Confirm'];
 
         function openManualFile(name) {
             if (MANUAL_FILES.indexOf(name) < 0) return false;          // whitelist
@@ -1835,8 +1835,8 @@
         function updConfirm() {
             var n = updMarkChanged();
             var msg = '⚠️ ยืนยัน Update ข้อมูลอุปกรณ์จริง\n\n' +
-                      (n > 0 ? 'มีการแก้ไข ' + n + ' ช่อง (สีฟ้า)\n' : 'ไม่มีการแก้ไข — ใช้ค่าที่ AAD Confirm ไว้\n') +
-                      'เมื่อยืนยันแล้วเอกสารจะเป็น Completed และย้อนกลับไม่ได้\n\nกด OK เพื่อดำเนินการต่อ';
+                (n > 0 ? 'มีการแก้ไข ' + n + ' ช่อง (สีฟ้า)\n' : 'ไม่มีการแก้ไข — ใช้ค่าที่ AAD Confirm ไว้\n') +
+                'เมื่อยืนยันแล้วเอกสารจะเป็น Completed และย้อนกลับไม่ได้\n\nกด OK เพื่อดำเนินการต่อ';
             if (!confirm(msg)) return false;
             if (typeof showLoading === 'function') showLoading();
             else if (typeof showFullOverlay === 'function') showFullOverlay('กำลัง Update ข้อมูล...', 'กรุณารอสักครู่');
@@ -1907,14 +1907,14 @@
                             <a href="#" onclick="return openManualFile('Step1');"><span class="glyphicon glyphicon-user"></span> Step 1 : Requester</a>
                             <a href="#" onclick="return openManualFile('Step2');"><span class="glyphicon glyphicon-search"></span> Step 2 : Search &amp; Add</a>
                             <a href="#" onclick="return openManualFile('Step3');"><span class="glyphicon glyphicon-list-alt"></span> Step 3 : Storage List</a>
-                            <a href="#" onclick="return openManualFile('Step4');"><span class="glyphicon glyphicon-comment"></span> Step 4 : Comment</a>
+                            <%--<a href="#" onclick="return openManualFile('Step4');"><span class="glyphicon glyphicon-comment"></span> Step 4 : Comment</a>--%>
                             <a href="#" onclick="return openManualFile('SaveDraft');"><span class="glyphicon glyphicon-pencil"></span> Save Draft</a>
-                            <a href="#" onclick="return openManualFile('SendRequest');"><span class="glyphicon glyphicon-send"></span> Send Request</a>
+                            <%--<a href="#" onclick="return openManualFile('SendRequest');"><span class="glyphicon glyphicon-send"></span> Send Request</a>--%>
                             <a href="#" onclick="return openManualFile('CancelRequest');"><span class="glyphicon glyphicon-remove-circle"></span> Cancel</a>
                             <div class="manual-sep"></div>
                             <div class="manual-grp">AAD</div>
                             <a href="#" onclick="return openManualFile('Confirm');"><span class="glyphicon glyphicon-ok-sign"></span> AAD Confirm</a>
-                            <a href="#" onclick="return openManualFile('Reject');"><span class="glyphicon glyphicon-remove-sign"></span> Reject</a>
+                            <%--<a href="#" onclick="return openManualFile('Reject');"><span class="glyphicon glyphicon-remove-sign"></span> Reject</a>--%>
 
                             <asp:PlaceHolder ID="phManualUpload" runat="server" Visible="false">
                                 <div class="manual-sep"></div>
@@ -2268,9 +2268,9 @@
                                     <asp:TemplateField HeaderText="Pic" HeaderStyle-CssClass="headerGv1" ItemStyle-Width="55px"
                                         ItemStyle-CssClass="rowGv1" ItemStyle-HorizontalAlign="Center">
                                         <ItemTemplate>
-                                            <asp:HiddenField ID="hdtoolId" runat="server" Value='<%# Eval("ToolId") %>' />
-                                            <asp:HiddenField ID="hdtoolSub" runat="server" Value='<%# Eval("ToolSub") %>' />
-                                            <asp:HiddenField ID="hdSystemId" runat="server" Value='<%# Eval("SystemId") %>' />
+                                            <asp:HiddenField ID="HiddenField1" runat="server" Value='<%# Eval("ToolId") %>' />
+                                            <asp:HiddenField ID="HiddenField2" runat="server" Value='<%# Eval("ToolSub") %>' />
+                                            <asp:HiddenField ID="HiddenField3" runat="server" Value='<%# Eval("SystemId") %>' />
                                             <asp:LinkButton ID="btn_Picture" title="View Picture" runat="server"
                                                 OnClick="btn_pic_Click" CssClass="img_tool">
                                                 <img src="images/photo-gallery.png" />
@@ -2712,11 +2712,6 @@
                                     <span>ระบุ Status (Spare / Not Use), OK/NG, การซ่อม และสถานที่จัดเก็บ (Cell / Station) — พิมพ์ค้นหาใน Dropdown ได้ กดปุ่ม + เพื่อกรอกค่าใหม่เอง</span></div>
                             </div>
                             <div class="rm-item">
-                                <div class="rm-ico"><span class="glyphicon glyphicon-comment"></span></div>
-                                <div class="rm-txt"><strong>Step 4 : Comment</strong>
-                                    <span>เลือกเหตุผลและกรอกรายละเอียดการจัดเก็บ</span></div>
-                            </div>
-                            <div class="rm-item">
                                 <div class="rm-ico"><span class="glyphicon glyphicon-floppy-disk"></span></div>
                                 <div class="rm-txt"><strong>บันทึก / ส่งรายการ</strong>
                                     <span>Save Draft เก็บชั่วคราว, Send Request ส่งให้อนุมัติ ปุ่มที่แสดงจะขึ้นกับสถานะและสิทธิ์ผู้ใช้</span></div>
@@ -2750,12 +2745,12 @@
                                 <asp:ListItem Value="Step1" Text="Step 1 : Requester (Step1.pdf)" />
                                 <asp:ListItem Value="Step2" Text="Step 2 : Search &amp; Add (Step2.pdf)" />
                                 <asp:ListItem Value="Step3" Text="Step 3 : Storage List (Step3.pdf)" />
-                                <asp:ListItem Value="Step4" Text="Step 4 : Comment (Step4.pdf)" />
+                                <%--<asp:ListItem Value="Step4" Text="Step 4 : Comment (Step4.pdf)" />--%>
                                 <asp:ListItem Value="SaveDraft" Text="Save Draft (SaveDraft.pdf)" />
-                                <asp:ListItem Value="SendRequest" Text="Send Request (SendRequest.pdf)" />
+                                <%--<asp:ListItem Value="SendRequest" Text="Send Request (SendRequest.pdf)" />--%>
                                 <asp:ListItem Value="CancelRequest" Text="Cancel (CancelRequest.pdf)" />
                                 <asp:ListItem Value="Confirm" Text="AAD Confirm (Confirm.pdf)" />
-                                <asp:ListItem Value="Reject" Text="Reject (Reject.pdf)" />
+                                <%--<asp:ListItem Value="Reject" Text="Reject (Reject.pdf)" />--%>
                             </asp:DropDownList>
                             <asp:FileUpload ID="fuManual" runat="server" accept="application/pdf"
                                 CssClass="form-control" Style="height:auto !important; padding:6px;" />
@@ -3083,5 +3078,4 @@
    
 
 </asp:Content>
-
 

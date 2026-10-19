@@ -1026,6 +1026,120 @@
         })();
     </script>
 
+    <style>
+        /* ===== Modal : เหตุผล Reject / Cancel ===== */
+        .rjm-overlay{
+            position:fixed; inset:0; z-index:2000;
+            background:rgba(18,41,63,.55);
+            align-items:center; justify-content:center; padding:16px;
+        }
+        .rjm-box{
+            width:100%; max-width:560px; background:#fff; border-radius:10px;
+            box-shadow:0 12px 40px rgba(0,0,0,.25); overflow:hidden;
+            animation:rjmIn .18s ease-out;
+        }
+        @keyframes rjmIn{ from{opacity:0; transform:translateY(-12px);} to{opacity:1; transform:none;} }
+
+        .rjm-head{
+            display:flex; align-items:center; gap:8px; padding:12px 16px;
+            background:linear-gradient(135deg,#8f2b22 0%,var(--danger) 100%);
+            color:#fff; font-size:16px; font-weight:700;
+        }
+        .rjm-x{ margin-left:auto; background:none; border:none; color:#fff; font-size:24px; line-height:1; cursor:pointer; opacity:.9; }
+        .rjm-body{ padding:16px 18px 6px; }
+        .rjm-doc{ font-size:13px; color:var(--text-sub); margin-bottom:6px; }
+        .rjm-desc{
+            font-size:13px; padding:8px 12px; border-radius:6px; margin-bottom:12px;
+            background:var(--danger-bg); border-left:4px solid var(--danger); color:#8f2b22;
+        }
+        .rjm-label{ display:block; font-size:13px; font-weight:600; color:var(--text); margin-bottom:4px; }
+        .rjm-count{ font-weight:400; font-size:12px; color:var(--text-sub); }
+        .rjm-text{ width:100% !important; height:96px !important; resize:vertical; font-size:13px; }
+        .rjm-text.rjm-err{ border-color:var(--warn) !important; background:#fff3cd !important; }
+        .rjm-err-msg{ color:var(--danger); font-size:12px; margin-top:4px; }
+        .rjm-foot{ display:flex; justify-content:flex-end; gap:8px; padding:12px 16px; border-top:1px solid var(--border-soft); }
+
+        /* โหมด Cancel → โทนเทา */
+        .rjm-overlay.rjm-cancel .rjm-head{ background:linear-gradient(135deg,#4c4c4c 0%,#7c8896 100%); }
+        .rjm-overlay.rjm-cancel .rjm-desc{ background:#ececec; border-left-color:#7c8896; color:#4c4c4c; }
+        .rjm-overlay.rjm-cancel .rjm-ok{ background:#7c8896 !important; }
+    </style>
+
+    <%--Modal : เหตุผล Reject / Cancel (อ้างอิง Borrow2)--%>
+    <script>
+        function rjmEl(id) { return document.getElementById(id); }
+
+        // นับตัวอักษร (ใช้ของเดิมถ้ามี)
+        if (typeof window.countChar_Reject !== 'function') {
+            window.countChar_Reject = function (val) {
+                var c = rjmEl('charCount_Reject');
+                if (!c) return;
+                c.innerText = val.value.length;
+                c.style.color = val.value.length < 10 ? 'red' : '#0d5b2b';
+            };
+        }
+
+        // ตั้งข้อความตามโหมด (ไม่ล้างค่าที่พิมพ์ — ใช้ตอน server เปิดซ้ำ)
+        function setRejectModalMode(mode) {
+            var isRej = (mode === 'reject');
+            var m = rjmEl('<%= pnlRejectModal.ClientID %>');
+            rjmEl('<%= hfRejectMode.ClientID %>').value = mode;
+            if (m) m.classList.toggle('rjm-cancel', !isRej);
+            rjmEl('rjmTitle').innerText = isRej ? 'Reject การร้องขอขอเบิก' : 'ยกเลิกการร้องขอขอเบิก (Cancel)';
+            rjmEl('rjmDesc').innerText = isRej
+                ? 'เอกสารจะถูกส่งกลับเป็น Draft ให้ผู้ร้องขอแก้ไขแล้วส่งใหม่'
+                : 'เอกสารจะถูกยกเลิกถาวร ไม่สามารถนำกลับมาดำเนินการต่อได้';
+            rjmEl('rjmOkText').innerText = isRej ? 'ยืนยัน Reject' : 'ยืนยันยกเลิก';
+        }
+
+        function showRejectModal() {
+            var m = rjmEl('<%= pnlRejectModal.ClientID %>');
+            if (!m) return;
+            m.style.display = 'flex';
+            var t = rjmEl('<%= txt_rejectComment.ClientID %>');
+            if (t) { countChar_Reject(t); setTimeout(function () { t.focus(); }, 50); }
+        }
+
+        // กดปุ่ม Reject / Cancel Request
+        function openRejectModal(mode) {
+            setRejectModalMode(mode);
+            var t = rjmEl('<%= txt_rejectComment.ClientID %>');
+            if (t) { t.value = ''; t.classList.remove('rjm-err'); }
+            rjmEl('rjmErr').style.display = 'none';
+            showRejectModal();
+            return false;                  // ไม่ Postback
+        }
+
+        function closeRejectModal() {
+            var m = rjmEl('<%= pnlRejectModal.ClientID %>');
+            if (m) m.style.display = 'none';
+            return false;
+        }
+
+        // ตรวจก่อนส่ง (Server ตรวจซ้ำอีกรอบ)
+        function rejectModalValidate() {
+            var t = rjmEl('<%= txt_rejectComment.ClientID %>');
+            var len = t ? t.value.trim().length : 0;
+            if (len < 10 || len > 200) {
+                if (t) { t.classList.add('rjm-err'); t.focus(); }
+                var err = rjmEl('rjmErr');
+                err.innerText = len > 200 ? 'เหตุผลต้องไม่เกิน 200 ตัวอักษร' : 'กรุณาระบุเหตุผลอย่างน้อย 10 ตัวอักษร';
+                err.style.display = 'block';
+                return false;
+            }
+            var mode = rjmEl('<%= hfRejectMode.ClientID %>').value;
+            if (!confirm(mode === 'reject' ? '⚠️ ยืนยัน Reject เอกสารนี้ ?' : '⚠️ ยืนยันยกเลิกเอกสารนี้ ?')) return false;
+            if (typeof showLoading === 'function') showLoading();
+            else if (typeof showFullOverlay === 'function') showFullOverlay('กำลังบันทึก...', 'กรุณารอสักครู่');
+            return true;
+        }
+
+        // Esc ปิด Modal
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeRejectModal();
+        });
+    </script>
+
     <asp:ScriptManager runat="server" ID="scriptManager1" EnablePageMethods="true"></asp:ScriptManager>
 
     <asp:UpdatePanel runat="server" ID="UP1">
@@ -1528,49 +1642,46 @@
                 </div>
 
                 <%--======================================================================--%>
-                <%------------ SECTION 5 : Reject Comment , Reject History -----------------%>
+                <%------------ SECTION 5 : Reject / Cancel History (เหตุผลกรอกใน Modal) ----%>
                 <%--======================================================================--%>
                 <asp:Panel ID="pnl_rejectComment" runat="server" Visible="false" class="card" style="margin-left:10px; margin-right:10px;">
+
                     <div class="card-header">
-                        <span>Reject , Cancel : Comment & History</span>
+                        <span><span class="glyphicon glyphicon-time"></span>&nbsp;ประวัติ Reject / Cancel</span>
                         <span style="margin-left:auto; font-size:11px; font-weight:400; color:#555;">
-                            <asp:Literal ID="reject_comment" runat="server" 
-                                Text="<span>กรณี Reject , Cancel : ใส่ข้อมูลเหตุผลการ Reject , Cancel</span>"  />    
-                        </span>                    
-                    </div>
-                    <asp:panel ID="rejectComment" runat="server" Visible="true" class="card-body">                    
-                        <span ID="rejectH" runat="server" style="text-align:left; font-size:12px; font-weight:500;">Comment</span>
-                        <span ID="rejectCountAlert" runat="server" style="text-align:right; font-size:12px; font-weight:500; color:#666;">
-                            (จำนวนตัวอักษร :
-                            <span id="charCount_Reject" style="color:#ff0303;">0</span>
-                            / 200 )
-                            <span style="color:red;">** ลงข้อมูลอย่างน้อย 10 ตัวอักษร **</span>
+                            เรียงจากล่าสุด
                         </span>
-                        <asp:TextBox ID="txt_rejectComment" runat="server" 
-                            TextMode="MultiLine" Rows="4" CssClass="form-control" MaxLength="200"
-                            onkeyup="countChar_Reject(this)" style ="width:100%; Height:60px !important;"
-                            placeholder="กรุณาใส่เหตุผลในการ Reject">
-                        </asp:TextBox>
-                    </asp:panel>
-                    <div class="card-body" style="margin-bottom:10px;"> 
-                        <span>History</span>
+                    </div>
+
+                    <div class="card-body" style="margin-bottom:10px;">
                         <div class="tbl-wrap" style="max-height: 150px;">
                             <asp:GridView ID="gv_rejectHistory" runat="server"
                                 CssClass="data-table change-table fixed-header"
                                 AutoGenerateColumns="false"
                                 EmptyDataText="ไม่มีประวัติการ Reject">
+
                                 <EmptyDataRowStyle CssClass="no-data" />
+
                                 <Columns>
-                                    <asp:BoundField  DataField="Reject_Count" ItemStyle-Width="60px" HeaderText="No" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1"/>
-                                    <asp:BoundField  DataField="Type" ItemStyle-Width="80px" HeaderText="Type" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1"/>
-                                    <asp:BoundField  DataField="Reject_by" ItemStyle-Width="180px" HeaderText="By" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1"/>
-                                    <asp:BoundField  DataField="status_name" ItemStyle-Width="140px" HeaderText="Process" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1"/>
-                                    <asp:BoundField  DataField="Reject_Date" ItemStyle-Width="140px" HeaderText="Date" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1" DataFormatString="{0:dd-MMM-yyyy HH:MM}"/>
-                                    <asp:BoundField  DataField="Reject_detail" HeaderText="Detail" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv2"/>
+                                    <asp:BoundField DataField="Reject_Count" ItemStyle-Width="60px"
+                                        HeaderText="No" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1"/>
+                                    <asp:BoundField DataField="Type" ItemStyle-Width="80px"
+                                        HeaderText="Type" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1"/>
+                                    <asp:BoundField DataField="Reject_by" ItemStyle-Width="180px"
+                                        HeaderText="By" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1"/>
+                                    <asp:BoundField DataField="status_name" ItemStyle-Width="140px"
+                                        HeaderText="Process" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1"/>
+                                    <%-- ✅ HH:mm (MM = เดือน) --%>
+                                    <asp:BoundField DataField="Reject_Date" ItemStyle-Width="140px"
+                                        HeaderText="Date" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv1"
+                                        DataFormatString="{0:dd-MMM-yyyy HH:mm}" HtmlEncode="false"/>
+                                    <asp:BoundField DataField="Reject_detail"
+                                        HeaderText="Detail" HeaderStyle-CssClass="headerGvOld" ItemStyle-CssClass="rowGv2"/>
                                 </Columns>
                             </asp:GridView>
                         </div>
                     </div>
+
                 </asp:Panel>
 
                 <!-- ── ACTION BAR / BUTTON BAR ── -->
@@ -1581,8 +1692,7 @@
                         <div id="CancelButton" runat="server" Visible="false">
                             <span class="tooltip-wrap" style="">
                                 <asp:LinkButton ID="btnCancel" runat="server"
-                                    CssClass="btn btn-secondary" style="font-size:12px; text-shadow:none;"
-                                    OnClick="btnCancel_Click" OnClientClick="return confirmCancel();"
+                                    CssClass="btn btn-secondary" style="font-size:12px; text-shadow:none;" OnClientClick="return openRejectModal('cancel');"
                                     title="ยกเลิกการร้องขอเบิก">
                                     <span class="glyphicon glyphicon-ban-circle"></span>
                                     Cancel Request
@@ -1611,8 +1721,8 @@
                         <div id="RejectButton" runat="server" Visible="false">
                             <span class="tooltip-wrap" style="">
                                 <asp:LinkButton ID="btnReject" runat="server"
-                                    CssClass="btn btn-danger" OnClick="btnReject_Click" style="margin-right:10px;"
-                                    OnClientClick="return Reject();" title="Reject การร้องขอ">
+                                    CssClass="btn btn-danger" style="margin-right:10px;"
+                                    OnClientClick="return openRejectModal('reject');" title="Reject การร้องขอ">
                                     <span class="glyphicon glyphicon-remove"></span>
                                         Reject                               
                                 </asp:LinkButton>
@@ -1877,6 +1987,53 @@
                     </div>
                 </div>
             </div>
+
+            <%-- Modal : เหตุผล Reject / Cancel (อ้างอิง Borrow2) --%>
+            <asp:Panel ID="pnlRejectModal" runat="server" CssClass="rjm-overlay" Style="display:none;">
+                <div class="rjm-box" role="dialog" aria-modal="true" aria-labelledby="rjmTitle">
+
+                    <div class="rjm-head">
+                        <span class="glyphicon glyphicon-alert"></span>
+                        <span id="rjmTitle">Reject การร้องขอขอเบิก</span>
+                        <button type="button" class="rjm-x" onclick="return closeRejectModal();" aria-label="ปิด">&times;</button>
+                    </div>
+
+                    <div class="rjm-body">
+                        <div class="rjm-doc">
+                            Issue No. : <b><asp:Literal ID="litRjmDoc" runat="server" /></b>
+                        </div>
+                        <div id="rjmDesc" class="rjm-desc">เอกสารจะถูกส่งกลับเป็น Draft ให้ผู้ร้องขอแก้ไข</div>
+
+                        <label class="rjm-label" for="<%= txt_rejectComment.ClientID %>">
+                            เหตุผล <span style="color:var(--danger);">*</span>
+                            <span class="rjm-count">
+                                (<span id="charCount_Reject">0</span> / 200 ตัวอักษร · อย่างน้อย 10)
+                            </span>
+                        </label>
+                        <asp:TextBox ID="txt_rejectComment" runat="server"
+                            TextMode="MultiLine" Rows="4"
+                            CssClass="form-control rjm-text"
+                            maxlength="200"
+                            onkeyup="countChar_Reject(this)" oninput="countChar_Reject(this)"
+                            placeholder="กรุณาระบุเหตุผล อย่างน้อย 10 ตัวอักษร" />
+                        <div id="rjmErr" class="rjm-err-msg" style="display:none;">กรุณาระบุเหตุผลอย่างน้อย 10 ตัวอักษร</div>
+
+                        <asp:HiddenField ID="hfRejectMode" runat="server" Value="" />
+                    </div>
+
+                    <div class="rjm-foot">
+                        <button type="button" class="btn btn-secondary" style="text-shadow:none;"
+                            onclick="return closeRejectModal();">ปิด</button>
+                        <asp:LinkButton ID="btnRejectModalConfirm" runat="server" CssClass="btn btn-danger rjm-ok"
+                            Style="text-shadow:none;"
+                            OnClientClick="return rejectModalValidate();"
+                            OnClick="btnRejectModalConfirm_Click">
+                            <span class="glyphicon glyphicon-ok"></span>&nbsp;<span id="rjmOkText">ยืนยัน Reject</span>
+                        </asp:LinkButton>
+                    </div>
+
+                </div>
+            </asp:Panel>
 
         </ContentTemplate>
 

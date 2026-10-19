@@ -122,6 +122,7 @@ namespace Tool_Equipment_Control_System
                     LoadRequester(Doc_NO);
                     LoadBorrowList(Doc_NO);
                     Bind_History_Reject(Doc_NO);
+                    litRjmDoc.Text = Server.HtmlEncode(Doc_NO);
 
                     if (mode == "view")
                     {
@@ -138,7 +139,7 @@ namespace Tool_Equipment_Control_System
                     else
                     {
                         if (CancelButton != null) CancelButton.Visible = true;
-                        pnl_rejectComment.Visible = true;
+                        ShowRejectHistoryIfAny();
                     }
                 }
             }
@@ -1031,6 +1032,67 @@ namespace Tool_Equipment_Control_System
             BuildConfirmSummary();
             ReopenConfirmModal();
         }
+        // ══════════════════════════════════════════════════════════════
+        // Modal เหตุผล : ยืนยัน Reject / Cancel (อ้างอิง Borrow2)
+        //   ตรวจโหมด / สถานะ / ความยาวเหตุผล แล้วส่งต่อให้ btnReject_Click / btnCancel_Click เดิม
+        // ══════════════════════════════════════════════════════════════
+        protected void btnRejectModalConfirm_Click(object sender, EventArgs e)
+        {
+            string mode = hfRejectMode.Value;
+            string comment = (txt_rejectComment.Text ?? "").Replace("\r\n", "\n").Trim();
+            string status = Convert.ToString(ViewState["STATUS_ID"]).Trim();
+            string pageMode = (Request.QueryString["mode"] ?? "edit").ToLower();
+
+            if (mode != "reject" && mode != "cancel")
+            {
+                alert_toast("ไม่พบโหมดการทำงาน กรุณาลองใหม่", "Error", "error", "5000");
+                return;
+            }
+
+            // ── สถานะที่ปิดไปแล้ว (ปุ่มไม่ควรแสดง) ──
+            if (status == "99" || status == "100" || status == "999")
+            {
+                alert_toast("เอกสารนี้ดำเนินการเสร็จสิ้น/ยกเลิกแล้ว ไม่สามารถ " + (mode == "reject" ? "Reject" : "Cancel") + " ได้",
+                            "ไม่สามารถดำเนินการได้", "warn", "8000");
+                return;
+            }
+            if (mode == "reject" && pageMode != "confirm" && pageMode != "approve")
+            {
+                alert_toast("Reject ได้เฉพาะโหมด Approve / Confirm", "ไม่สามารถ Reject ได้", "warn", "8000");
+                return;
+            }
+
+            // ── เหตุผล ──
+            if (comment.Length < 10 || comment.Length > 200)
+            {
+                alert_toast(comment.Length > 200
+                                ? "เหตุผลต้องไม่เกิน 200 ตัวอักษร (ปัจจุบัน " + comment.Length + ")"
+                                : "กรุณาระบุเหตุผลอย่างน้อย 10 ตัวอักษร",
+                            "ข้อมูลไม่ครบ", "warn", "5000");
+                ReopenRejectModal(mode);
+                return;
+            }
+            txt_rejectComment.Text = comment;
+
+            if (mode == "reject") btnReject_Click(sender, e);
+            else btnCancel_Click(sender, e);
+        }
+
+        /// <summary>เปิด Modal ซ้ำหลัง Postback (คงค่าที่พิมพ์ไว้)</summary>
+        private void ReopenRejectModal(string mode)
+        {
+            string js = "setRejectModalMode('" + HttpUtility.JavaScriptStringEncode(mode) + "');" +
+                        "var t=document.getElementById('" + txt_rejectComment.ClientID + "'); if(t) t.classList.add('rjm-err');" +
+                        "showRejectModal();";
+            ScriptManager.RegisterStartupScript(this, GetType(), "reopenReject", js, true);
+        }
+
+        /// <summary>Section 5 : แสดงเฉพาะเมื่อมีประวัติ Reject / Cancel (เรียกหลัง Bind_History_Reject)</summary>
+        private void ShowRejectHistoryIfAny()
+        {
+            pnl_rejectComment.Visible = gv_rejectHistory.Rows.Count > 0;
+        }
+
         protected void btnReject_Click(object sender, EventArgs e)
         {
             string Doc_No = litIssueNo.Text.Trim();
@@ -1066,10 +1128,7 @@ namespace Tool_Equipment_Control_System
             {
                 alert_toast("กรุณากรอก Comment อย่างน้อย 10 ตัวอักษร", "Warning", "warn", "3000");
 
-                txt_rejectComment.Style["border-color"] = "#ffc107";
-                txt_rejectComment.Style["background-color"] = "#fff3cd";
-
-                txt_rejectComment.Focus();
+                ReopenRejectModal("reject");
                 return;
             }
 
@@ -1082,6 +1141,7 @@ namespace Tool_Equipment_Control_System
 
             DateTime rejectDate = DateTime.Now;
 
+            bool rejectOk = false;
             conn.Open();
 
             try
@@ -1144,6 +1204,8 @@ namespace Tool_Equipment_Control_System
                     cmd.ExecuteNonQuery();
                 }
                 #endregion
+
+                rejectOk = true;
             }
             catch (Exception ex)
             {
@@ -1151,21 +1213,29 @@ namespace Tool_Equipment_Control_System
             }
             finally
             {
-                string alert_info = "Reject";
                 conn.Close(); // ✅ ปิดทุกครั้ง
 
-                //alert_toast("Doc No : " + Doc_No, alert_info, "warn", "2000");
+                if (!rejectOk)
+                {
+                    ReopenRejectModal("reject");   // ✅ error → ไม่ redirect , เปิด Modal ให้ลองใหม่
+                }
+                else
+                {
+                    string alert_info = "Reject";
 
-                string jsDoc = HttpUtility.JavaScriptStringEncode(Doc_No);
-                string script =
-                    "document.getElementById('loadingOverlay').style.display = 'block';" +
-                    "if (typeof showToast === 'function') {" +
-                    "  showToast('Doc No : " + jsDoc + "', { title: 'Reject Done', type: 'warn', duration: 2000 });" +
-                    "}" +
-                    "setTimeout(function () { window.location.href = '" + link_path + "'; }, 2000);";
+                    //alert_toast("Doc No : " + Doc_No, alert_info, "warn", "2000");
 
-                ScriptManager.RegisterStartupScript(
-                    this, this.GetType(), "redirectScript", script, true);
+                    string jsDoc = HttpUtility.JavaScriptStringEncode(Doc_No);
+                    string script =
+                        "document.getElementById('loadingOverlay').style.display = 'block';" +
+                        "if (typeof showToast === 'function') {" +
+                        "  showToast('Doc No : " + jsDoc + "', { title: 'Reject Done', type: 'warn', duration: 2000 });" +
+                        "}" +
+                        "setTimeout(function () { window.location.href = '" + link_path + "'; }, 2000);";
+
+                    ScriptManager.RegisterStartupScript(
+                        this, this.GetType(), "redirectScript", script, true);
+                }
             }
         }
         protected void btnCancel_Click(object sender, EventArgs e)
@@ -1211,10 +1281,7 @@ namespace Tool_Equipment_Control_System
             {
                 alert_toast("กรุณากรอก Comment อย่างน้อย 10 ตัวอักษร", "Warning", "warn", "3000");
 
-                txt_rejectComment.Style["border-color"] = "#ffc107";
-                txt_rejectComment.Style["background-color"] = "#fff3cd";
-
-                txt_rejectComment.Focus();
+                ReopenRejectModal("cancel");
                 return;
             }
 
@@ -1288,6 +1355,7 @@ namespace Tool_Equipment_Control_System
             catch (Exception ex)
             {
                 alert_toast("Cancel Error : " + ex.Message, "Error", "error", "10000");
+                ReopenRejectModal("cancel");
                 return;
             }
             finally
@@ -3634,14 +3702,7 @@ namespace Tool_Equipment_Control_System
             borrow_note.Visible = true;
 
             //Show Comment History
-            pnl_rejectComment.Visible = true;
-            // --- During Process , Complete , Cancel  -> Close Comment reject
-            if (status_id == "100" || status_id == "999")
-            {
-                txt_rejectComment.Visible = false;
-                rejectCountAlert.Visible = false;
-                rejectH.Visible = false;
-            }
+            ShowRejectHistoryIfAny();
         }
         private void SetConfirmMode(string status_id)
         {
@@ -3678,14 +3739,7 @@ namespace Tool_Equipment_Control_System
             borrow_note.Visible = true;
 
             //Show Comment History
-            pnl_rejectComment.Visible = true;
-            // --- During Borrow , Complete , Cancel  -> Close Comment reject
-            if (status_id == "100" || status_id == "999")
-            {
-                txt_rejectComment.Visible = false;
-                rejectCountAlert.Visible = false;
-                rejectH.Visible = false;
-            }
+            ShowRejectHistoryIfAny();
         }
         private void SetReturnMode(string status_id)
         {
@@ -3715,14 +3769,7 @@ namespace Tool_Equipment_Control_System
             borrow_note.Visible = true;
 
             //Show Comment History
-            pnl_rejectComment.Visible = true;
-            // --- During Borrow , Complete , Cancel  -> Close Comment reject
-            if (status_id == "90" || status_id == "100" || status_id == "999")
-            {
-                txt_rejectComment.Visible = false;
-                rejectCountAlert.Visible = false;
-                rejectH.Visible = false;
-            }
+            ShowRejectHistoryIfAny();
         }
         private void MakeRowReadonly(Control parent)
         {

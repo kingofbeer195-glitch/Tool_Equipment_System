@@ -1689,6 +1689,74 @@
         .toast .message { white-space: pre-line; }
     </style>
 
+    <%--AAD Confirm : Modal สรุป (อ้างอิง withdraw2)--%>
+    <style>
+        .wcf-overlay {
+            position:fixed; inset:0; z-index:9990;               /* ใต้ Toast (9999) / Loading (9998) */
+            background:rgba(20,30,42,.45);
+            align-items:center; justify-content:center;
+        }
+        .wcf-box {
+            display:flex; flex-direction:column;
+            width:95vw; max-height:90vh;
+            background:#fff; border-radius:12px; overflow:hidden;
+            box-shadow:0 20px 50px rgba(20,30,42,.3);
+        }
+        .wcf-head {
+            display:flex; align-items:center; justify-content:space-between; gap:12px;
+            padding:14px 20px; border-bottom:1px solid #edf0f4;
+            font-size:15px; font-weight:700; color:#1c2b3a;
+        }
+        .wcf-head .wcf-doc { color:var(--ol-700, #566a26); }
+        .wcf-x {
+            width:32px; height:32px; border-radius:6px;
+            background:none; border:none; color:#66727f; font-size:24px; line-height:1; cursor:pointer;
+        }
+        .wcf-x:hover { background:#f3f5f8; color:#1c2b3a; }
+        .wcf-body { padding:16px 20px; overflow-y:auto; min-height:40vh; }
+        .wcf-foot { display:flex; justify-content:flex-end; gap:8px; padding:12px 20px; border-top:1px solid #edf0f4; }
+        .wcf-sec { display:flex; align-items:center; gap:8px; margin:0 0 8px; font-size:14px; font-weight:700; color:#1c2b3a; }
+        .wcf-sec small { font-size:12px; font-weight:400; color:#66727f; }
+        .wcf-summary { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; font-size:13px; }
+        .wcf-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 10px; border-radius:999px; font-size:11.5px; font-weight:700; border:1px solid transparent; white-space:nowrap; }
+        .wcf-ok     { background:#e3f4e8; color:#16703d; border-color:#b6e0c4; }
+        .wcf-ng     { background:#fbeceb; color:#a82f2f; border-color:#f2c2bd; }
+        .wcf-spare  { background:#fdf3d7; color:#7a5b16; border-color:#ecd9a6; }
+        .wcf-notuse { background:#ececec; color:#4c4c4c; border-color:#cfcfcf; }
+        .wcf-new    { background:#eaf3fb; color:#245177; border-color:#bcd9ef; }
+        .wcf-notice {
+            margin-top:10px; padding:8px 12px; border-left:3px solid #d9822b; border-radius:6px;
+            background:#fdf3e7; color:#8a4b0c; font-size:13px;
+        }
+        .cfm-warn {
+            display:flex; gap:12px; align-items:flex-start;
+            margin:0 0 12px; padding:12px 16px;
+            background:#fff7e0; border:1px solid #f1d98c; border-left:6px solid #d99a06;
+            border-radius:10px; font-size:13.5px; color:#5c4300;
+        }
+        .cfm-warn .cfm-warn-ico { font-size:22px; line-height:1; }
+        .cfm-warn b.cfm-warn-title { display:block; font-size:15px; color:#946200; margin-bottom:4px; }
+        table.wcf-table th { white-space:nowrap; text-align:center; padding:6px 8px; }
+        table.wcf-table td { padding:6px 8px; text-align:center; font-size:12px; }
+        table.wcf-table .zone-divider { border-left:3px solid var(--ol-800, #3d4c19) !important; }
+    </style>
+    <script>
+        function closeConfirmModal() {
+            var m = document.getElementById('<%= pnlConfirmModal.ClientID %>');
+            if (m) m.style.display = 'none';
+        }
+        function cfmConfirm() {
+            if (!confirm('⚠️ ยืนยัน AAD Confirm\n\nตรวจสอบรายการและสถานที่จัดเก็บครบทุกรายการแล้วใช่หรือไม่?\n' +
+                'เมื่อยืนยันแล้ว ระบบจะอัปเดตข้อมูลอุปกรณ์ทันทีและแก้ไขไม่ได้\n\nกด OK เพื่อดำเนินการต่อ')) return false;
+            closeConfirmModal();
+            if (typeof showFullOverlay === 'function') showFullOverlay('กำลังบันทึก AAD Confirm...', 'กรุณารอสักครู่');
+            return true;
+        }
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeConfirmModal();
+        });
+    </script>
+
     <asp:ScriptManager runat="server" ID="scriptManager1" EnablePageMethods="true"></asp:ScriptManager>
 
     <asp:UpdateProgress ID="UpdateProgress1" runat="server" AssociatedUpdatePanelID="UP1">
@@ -2479,7 +2547,7 @@
                             <span class="tooltip-wrap" style="">
                                 <asp:LinkButton ID="btnConfirm" runat="server" 
                                     CssClass="btn btn-success" OnClick="btnConfirm_Click"
-                                    OnClientClick="return AADConfirm();" data-toggle="tooltip" data-placement="top"
+                                    data-toggle="tooltip" data-placement="top"
                                     title="ยืนยันการร้องขอ">                                                                        
                                     <span class="glyphicon glyphicon-ok-sign"></span>
                                         AAD Confirm
@@ -2661,6 +2729,95 @@
                         </asp:LinkButton>
                     </div>
 
+                </div>
+            </asp:Panel>
+
+            <%-- ===== Modal : สรุปก่อน AAD Confirm — อ้างอิง withdraw2 ===== --%>
+            <asp:Panel ID="pnlConfirmModal" runat="server" CssClass="wcf-overlay" Style="display:none;">
+                <div class="wcf-box">
+                    <div class="wcf-head">
+                        <span>ยืนยัน AAD Confirm : จัดเก็บอุปกรณ์ <span class="wcf-doc"><asp:Literal ID="litCfmDoc" runat="server" /></span></span>
+                        <span style="display:inline-flex; align-items:center; gap:8px; margin-left:auto;">
+                            <a href="#" class="manual-btn" style="border:1px solid var(--ol-600, #6f8736);" title="คู่มือ AAD Confirm"
+                               onclick="return openManualFile('Confirm');">
+                                <span class="glyphicon glyphicon-book"></span> คู่มือ
+                            </a>
+                            <button type="button" class="wcf-x" onclick="closeConfirmModal();" aria-label="ปิด">&times;</button>
+                        </span>
+                    </div>
+
+                    <div class="wcf-body">
+                        <asp:Literal ID="litCfmSummary" runat="server" />
+
+                        <div class="cfm-warn">
+                            <span class="cfm-warn-ico">⚠️</span>
+                            <div>
+                                <b class="cfm-warn-title">กรุณาตรวจสอบ Status , OK/NG และสถานที่จัดเก็บ (Cell / Station) ทุกรายการก่อนกดยืนยัน</b>
+                                ถ้าข้อมูลไม่ถูกต้อง กด "ยกเลิก" แล้วแก้ไขใน Step 3 ก่อน
+                            </div>
+                        </div>
+
+                        <div class="wcf-sec">Step 3 : Storage List <small>(Current → Storage)</small></div>
+
+                        <div class="tbl-wrap" style="max-height:440px; overflow:auto;">
+                            <asp:GridView ID="gvConfirmSummary" runat="server"
+                                CssClass="data-table wcf-table" GridLines="None" CellSpacing="0"
+                                style="min-width:1800px;" AutoGenerateColumns="false"
+                                EmptyDataText="ไม่มีรายการ" UseAccessibleHeader="true">
+                                <Columns>
+                                    <asp:BoundField DataField="RowNo" HeaderText="#" ItemStyle-Width="35px" />
+                                    <asp:BoundField DataField="FixAssetNo" HeaderText="Fix Asset" ItemStyle-Width="100px" />
+                                    <asp:BoundField DataField="ControlNo" HeaderText="Control No" ItemStyle-Width="110px" />
+                                    <asp:BoundField DataField="ToolNo" HeaderText="Tool No / Model" />
+
+                                    <%--═══ Current ═══--%>
+                                    <asp:BoundField DataField="OldDept" HeaderText="Current Dept"
+                                        HeaderStyle-CssClass="hdr-current zone-divider" ItemStyle-CssClass="col-current zone-divider" />
+                                    <asp:BoundField DataField="OldModel" HeaderText="Current Model"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldCell" HeaderText="Current Cell"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="OldStation" HeaderText="Current Station"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--═══ ข้อมูลการร้องขอ ═══--%>
+                                    <asp:BoundField DataField="StatusHtml" HeaderText="Status" HtmlEncode="false"
+                                        HeaderStyle-CssClass="hdr-request zone-divider" ItemStyle-CssClass="col-request zone-divider" />
+                                    <asp:BoundField DataField="OkNgHtml" HeaderText="OK/NG" HtmlEncode="false"
+                                        HeaderStyle-CssClass="hdr-request" ItemStyle-CssClass="col-request" />
+                                    <asp:BoundField DataField="RepairStatus" HeaderText="Repair Status"
+                                        HeaderStyle-CssClass="hdr-request" ItemStyle-CssClass="col-request" />
+                                    <asp:BoundField DataField="ConfirmBy" HeaderText="Confirm By"
+                                        HeaderStyle-CssClass="hdr-request" ItemStyle-CssClass="col-request" />
+                                    <asp:BoundField DataField="ServiceUnit" HeaderText="Service Unit"
+                                        HeaderStyle-CssClass="hdr-request" ItemStyle-CssClass="col-request" />
+                                    <asp:BoundField DataField="ReasonName" HeaderText="เหตุผล"
+                                        HeaderStyle-CssClass="hdr-request" ItemStyle-CssClass="col-request" />
+
+                                    <%--═══ Storage (ปลายทาง) ═══--%>
+                                    <asp:BoundField DataField="NewDept" HeaderText="Storage : Dept"
+                                        HeaderStyle-CssClass="hdr-storage zone-divider" ItemStyle-CssClass="col-storage zone-divider" />
+                                    <asp:BoundField DataField="NewCell" HeaderText="Storage : Cell"
+                                        HeaderStyle-CssClass="hdr-storage" ItemStyle-CssClass="col-storage" />
+                                    <asp:BoundField DataField="NewStation" HeaderText="Storage : Station"
+                                        HeaderStyle-CssClass="hdr-storage" ItemStyle-CssClass="col-storage" />
+                                </Columns>
+                            </asp:GridView>
+                        </div>
+
+                        <div class="wcf-notice">
+                            เมื่อยืนยัน เอกสารจะเปลี่ยนเป็น <b>Completed</b> และระบบจะอัปเดตอุปกรณ์ทุกรายการทันที :
+                            ย้าย Cell / Station ไปยังที่จัดเก็บ (Cell / Station ที่ระบุว่า "ใหม่" จะถูกสร้างใน Master) และเปลี่ยนแผนกเป็น AAD (5505)
+                        </div>
+                    </div>
+
+                    <div class="wcf-foot">
+                        <button type="button" class="btn btn-secondary" style="text-shadow:none;" onclick="closeConfirmModal();">ยกเลิก</button>
+                        <asp:LinkButton ID="btnConfirmModalOk" runat="server" CssClass="btn btn-success" Style="text-shadow:none;"
+                            OnClick="btnConfirmModalOk_Click" OnClientClick="return cfmConfirm();">
+                            <span class="glyphicon glyphicon-ok-sign"></span> ยืนยัน AAD Confirm
+                        </asp:LinkButton>
+                    </div>
                 </div>
             </asp:Panel>
 

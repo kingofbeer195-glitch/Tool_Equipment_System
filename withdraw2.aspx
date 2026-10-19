@@ -1140,6 +1140,21 @@
         });
     </script>
 
+    <%--Step 2 : Status → badge ลิงก์ไปเอกสารที่ติดกระบวนการ (อ้างอิง Borrow2)--%>
+    <style>
+        a.badge.badge-link { text-decoration: none; cursor: pointer; }
+        a.badge.badge-link:hover { filter: brightness(.9); text-decoration: underline; color: #fff; }
+        .proc-doc { margin-top: 3px; font-size: 11px; color: var(--danger, #d64b3d); font-weight: 600; }
+
+        /* แถวที่ติดกระบวนการ → พื้นแดงอ่อน */
+        #<%= gvSearchResult.ClientID %> tr.row-locked td { background: #fbeceb !important; }
+    </style>
+
+    <%--Toast : แสดงหลายบรรทัด (รายการที่ติดกระบวนการ)--%>
+    <style>
+        .toast .message { white-space: pre-line; }
+    </style>
+
     <asp:ScriptManager runat="server" ID="scriptManager1" EnablePageMethods="true"></asp:ScriptManager>
 
     <asp:UpdatePanel runat="server" ID="UP1">
@@ -1396,13 +1411,11 @@
                                                 </asp:LinkButton>
                                             </ItemTemplate>
                                         </asp:TemplateField>
-                                        <asp:TemplateField HeaderText="Status" HeaderStyle-CssClass="headerGv1" ItemStyle-Width="140px"
+                                        <asp:TemplateField HeaderText="Status" HeaderStyle-CssClass="headerGv1" ItemStyle-Width="150px"
                                             ItemStyle-CssClass="rowGv1" ItemStyle-HorizontalAlign="Center">
-                                            <ItemTemplate>   
+                                            <ItemTemplate>
                                                 <asp:HiddenField ID="hdstatusId" runat="server" Value='<%# Eval("status_id") %>' />
-                                                <span class='badge <%# GetStatusBadgeClass(Eval("DisplayStatus").ToString()) %>'>
-                                                    <%# Eval("DisplayStatus") %>
-                                                </span>
+                                                <%# BuildStatusBadge(Eval("DisplayStatus"), Eval("ProcUrl"), Eval("ProcDoc")) %>
                                             </ItemTemplate>
                                         </asp:TemplateField>
                                         <asp:BoundField  DataField="sub_no" ItemStyle-Width="50px" HeaderText="No" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1"/>

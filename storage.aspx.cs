@@ -418,8 +418,8 @@ namespace Tool_Equipment_Control_System
         {
             GridViewRow row = (sender as LinkButton).NamingContainer as GridViewRow;
             HiddenField hdtool_id = (HiddenField)row.FindControl("hdtoolId");
-            HiddenField hdtool_sub = (HiddenField)row.FindControl("hdtoolSub");
-            HiddenField hd_sys_status = (HiddenField)row.FindControl("hdsystemId");
+            HiddenField hdtool_sub = FindHd(row, "hdtoolSub", "hdToolSub");
+            HiddenField hd_sys_status = FindHd(row, "hdsystemId", "hdSystemId");
 
             if (hdtool_id == null || hdtool_sub == null || hd_sys_status == null)
             {
@@ -539,8 +539,8 @@ namespace Tool_Equipment_Control_System
         {
             GridViewRow row = (sender as LinkButton).NamingContainer as GridViewRow;
             HiddenField hdtool_id = (HiddenField)row.FindControl("hdtoolId");
-            HiddenField hdtool_sub = (HiddenField)row.FindControl("hdtoolSub");
-            HiddenField hd_sys_status = (HiddenField)row.FindControl("hdsystemId");
+            HiddenField hdtool_sub = FindHd(row, "hdtoolSub", "hdToolSub");
+            HiddenField hd_sys_status = FindHd(row, "hdsystemId", "hdSystemId");
 
             if (hdtool_id == null || hdtool_sub == null || hd_sys_status == null)
             {
@@ -770,7 +770,6 @@ namespace Tool_Equipment_Control_System
             if (duringBorrowCheck())
             {
                 BindStorageList();
-                alert_toast("พบรายการอยู่ระหว่างการยืม : ไม่สามารถแจ้งเปลี่ยนแปลงได้", "พบรายการอยู่่ระหว่างการยืม", "warn", "5000");
             }
             else
             {
@@ -808,6 +807,13 @@ namespace Tool_Equipment_Control_System
 
             // ✅ แยกด้วย space แล้วเอาตัวแรก
             empName = empName.Split(' ')[0];
+
+            // ✅ ตรวจรายการที่ติดกระบวนการอื่นก่อน Approve
+            if (duringBorrowCheck())
+            {
+                BindStorageList();
+                return;
+            }
 
             conn.Open();
 
@@ -913,8 +919,6 @@ namespace Tool_Equipment_Control_System
             if (duringBorrowCheck())
             {
                 BindStorageList();
-                alert_toast("พบรายการอยู่ระหว่างการยืม : ไม่สามารถดำเนินการได้",
-                            "พบรายการอยู่่ระหว่างการยืม", "warn", "5000");
                 return;
             }
 
@@ -1471,8 +1475,8 @@ namespace Tool_Equipment_Control_System
             GridViewRow row = gvSearchResult.Rows[rowIndex];
 
             HiddenField hdtoolId = (HiddenField)row.FindControl("hdtoolId");
-            HiddenField hdtoolSub = (HiddenField)row.FindControl("hdtoolSub");
-            HiddenField hdsystemId = (HiddenField)row.FindControl("hdsystemId");
+            HiddenField hdtoolSub = FindHd(row, "hdtoolSub", "hdToolSub");
+            HiddenField hdsystemId = FindHd(row, "hdsystemId", "hdSystemId");
 
             string toolId = hdtoolId.Value;
             string subId = hdtoolSub.Value;
@@ -1592,7 +1596,17 @@ namespace Tool_Equipment_Control_System
                 if (row == null) return;
                 DataRow cRow = row.Row;
 
-                // highlight row ที่กำลังยืม
+                // ✅ ติดกระบวนการอื่น (จาก duringBorrowCheck) → ไฮไลต์ทุกโหมด
+                string procLabel = ColVal(cRow, "ProcLabel");
+                if (procLabel != "")
+                {
+                    foreach (TableCell cell in e.Row.Cells)
+                        cell.Style["background-color"] = "#fff3cd";
+                    e.Row.Style["border-left"] = "8px solid #dc3545";
+                    e.Row.ToolTip = "อยู่ระหว่างดำเนินการ : " + procLabel;
+                }
+
+                // highlight row ที่กำลังยืม (เดิม)
                 if (mode == "edit")
                 {
                     string statusId = ColVal(cRow, "StatusId");
@@ -1704,6 +1718,13 @@ namespace Tool_Equipment_Control_System
                     }
                     ddlConfirmBy.Enabled = isNG;
                 }
+
+                // ✅ NG → ช่องที่ยังว่างเป็นสีเหลือง (แบบเตือนข้อมูลไม่ครบ) ให้รู้ว่าต้องกรอก
+                if (mode == "edit")
+                {
+                    SetWarning_DDL(ddlRepairStatus, isNG && ddlRepairStatus != null && ddlRepairStatus.SelectedValue == "");
+                    SetWarning_DDL(ddlConfirmBy, isNG && ddlConfirmBy != null && ddlConfirmBy.SelectedValue == "");
+                }
                 #endregion
 
                 #region --- Use Model ---
@@ -1810,6 +1831,35 @@ namespace Tool_Equipment_Control_System
                 if (lblDeptNew != null) lblDeptNew.Text = "5505";
             }
         }
+        /// <summary>
+        /// Key ของแถวที่กด Remove (อ้างอิง Borrow2)
+        ///   1) gvStorageList.DataKeys (DataKeyNames="ToolId,ToolSub,SystemId")
+        ///   2) สำรอง : HiddenField ในคอลัมน์ Pic (hdtoolId / hdtoolSub / hdSystemId)
+        /// </summary>
+        private bool GetRemoveRowKeys(int rowIndex, out string toolId, out string toolSub, out string systemId)
+        {
+            toolId = toolSub = systemId = "";
+
+            if (gvStorageList.DataKeys != null && rowIndex < gvStorageList.DataKeys.Count && gvStorageList.DataKeys[rowIndex] != null)
+            {
+                var v = gvStorageList.DataKeys[rowIndex].Values;
+                toolId = Convert.ToString(v["ToolId"]).Trim();
+                toolSub = Convert.ToString(v["ToolSub"]).Trim();
+                systemId = Convert.ToString(v["SystemId"]).Trim();
+                if (toolId != "") return true;
+            }
+
+            GridViewRow gvRow = gvStorageList.Rows[rowIndex];
+            HiddenField hdToolId = FindHd(gvRow, "hdtoolId");
+            HiddenField hdToolSub = FindHd(gvRow, "hdtoolSub", "hdToolSub");
+            HiddenField hdSystemId = FindHd(gvRow, "hdSystemId", "hdsystemId");
+            if (hdToolId == null || hdToolSub == null || hdSystemId == null) return false;
+
+            toolId = hdToolId.Value.Trim();
+            toolSub = hdToolSub.Value.Trim();
+            systemId = hdSystemId.Value.Trim();
+            return toolId != "";
+        }
         protected void gvStorageList_RowCommand(object sender, GridViewCommandEventArgs e)
         {
 
@@ -1819,21 +1869,14 @@ namespace Tool_Equipment_Control_System
 
             if (rowIndex < 0 || rowIndex >= gvStorageList.Rows.Count) return;
 
-            GridViewRow gvRow = gvStorageList.Rows[rowIndex];
-
-            HiddenField hdToolId = gvRow.FindControl("hdtoolId") as HiddenField;
-            HiddenField hdToolSub = gvRow.FindControl("hdtoolSub") as HiddenField;
-            HiddenField hdSystemId = gvRow.FindControl("hdsystemId") as HiddenField;
-
-            if (hdToolId == null || hdToolSub == null || hdSystemId == null)
+            // ✅ Key ของแถว : DataKeys ก่อน (ไม่หายตอน postback) → สำรอง HiddenField
+            //    (เดิม FindControl("hdsystemId") ไม่ตรงกับ ID จริง "hdSystemId" → ขึ้น "ไม่พบข้อมูล Hidden Field")
+            string toolId, toolSub, systemId;
+            if (!GetRemoveRowKeys(rowIndex, out toolId, out toolSub, out systemId))
             {
-                alert_toast("ไม่พบข้อมูล Hidden Field", "Remove Error", "error", "5000");
+                alert_toast("ไม่พบ Key ของรายการที่ต้องการลบ กรุณารีเฟรชหน้า", "Remove Error", "error", "5000");
                 return;
             }
-
-            string toolId = hdToolId.Value;
-            string toolSub = hdToolSub.Value;
-            string systemId = hdSystemId.Value;
 
             // ── STEP 1 : Sync GridView → StorageListDT (ไม่ Compare) ──
             SyncGridViewToStorageListDT();
@@ -2273,7 +2316,6 @@ namespace Tool_Equipment_Control_System
                 if (duringBorrowCheck())
                 {
                     BindStorageList();
-                    alert_toast("พบรายการอยู่ระหว่างการยืม : ไม่สามารถยืมได้", "พบรายการอยู่่ระหว่างการยืม", "warn", "5000");
                     return;
                 }
 
@@ -2356,8 +2398,6 @@ namespace Tool_Equipment_Control_System
             if (duringBorrowCheck())
             {
                 BindStorageList();
-                alert_toast("พบรายการอยู่ระหว่างการยืม : ไม่สามารถร้องขอจัดเก็บอุปกรณ์ได้",
-                            "พบรายการอยู่่ระหว่างการยืม", "warn", "5000");
                 return;
             }
 
@@ -3722,36 +3762,55 @@ namespace Tool_Equipment_Control_System
         #endregion\
 
         #region --- Helper : Borrow List CHeck ---
+        /// <summary>หา HiddenField ในแถว — รองรับชื่อ ID ที่ต่างกันระหว่าง Step 2 / Step 3 (hdsystemId / hdSystemId)</summary>
+        private static HiddenField FindHd(Control row, params string[] ids)
+        {
+            if (row == null) return null;
+            foreach (string id in ids)
+            {
+                HiddenField h = row.FindControl(id) as HiddenField;
+                if (h != null) return h;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// ตรวจรายการที่ติดกระบวนการอื่น (AAD1–AAD4) — อ้างอิง Borrow2
+        /// แจ้งเตือนเองพร้อมระบุรายการ / กระบวนการ / เลขเอกสาร และ mark แถว (ProcLabel) ให้ไฮไลต์
+        /// </summary>
         private bool duringBorrowCheck()
         {
             DataTable dt = StorageListDT;
-            bool borrowCheck = false;
+            if (!dt.Columns.Contains("ProcLabel")) dt.Columns.Add("ProcLabel", typeof(string));
+
+            var procMap = GetProcessMap(litIssueNo.Text.Trim());
+            var msgs = new List<string>();
+            int no = 0;
 
             foreach (DataRow r in dt.Rows)
             {
+                if (r.RowState == DataRowState.Deleted) continue;
+                if (GetVal(r, "CompareData") == "Delete") continue;
+                no++;
+                r["ProcLabel"] = "";
+                if (r["ToolId"] == DBNull.Value || r["ToolSub"] == DBNull.Value || r["SystemId"] == DBNull.Value) continue;
 
-                if (r["ToolId"] == DBNull.Value || r["ToolSub"] == DBNull.Value || r["SystemId"] == DBNull.Value)
-                    continue;
+                ProcInfo proc;
+                if (!procMap.TryGetValue(ProcKey(r["ToolId"], r["ToolSub"], r["SystemId"]), out proc)) continue;
 
-                string strDB =
-                        "SELECT * " +
-                        " FROM  Borrow_List" +
-                        " WHERE (tool_id = " + r["ToolId"].ToString() +
-                        "   AND sub_id = " + r["ToolSub"].ToString() +
-                        "   AND system_id = " + r["SystemId"].ToString() + ") " +
-                        "   AND status_id IN (50, 90) ";
-                dc.QryDT(conn, strDB);
-                DataTable duringBorrow = dc.dt;
-
-                if (duringBorrow.Rows.Count > 0)
-                {
-                    //Tag Color of Row -> During Borrow 
-                    r["StatusId"] = duringBorrow.Rows[0]["status_id"];
-
-                    borrowCheck = true;
-                }
+                r["ProcLabel"] = proc.Label + " [" + proc.DocNo + "]";
+                string name = GetVal(r, "FixAssetNo") != "" ? GetVal(r, "FixAssetNo")
+                            : (GetVal(r, "ControlNo") != "" ? GetVal(r, "ControlNo") : GetVal(r, "ToolNo"));
+                msgs.Add("• รายการที่ " + no + " " + name + " → " + proc.Label + " [" + proc.DocNo + "]");
             }
-            return borrowCheck;
+
+            StorageListDT = dt;
+            if (msgs.Count == 0) return false;
+
+            alert_toast("อุปกรณ์ต่อไปนี้อยู่ระหว่างดำเนินการในเอกสารอื่น ไม่สามารถจัดเก็บได้\n" +
+                        "กรุณา Remove ออกจากรายการก่อน :\n" + string.Join("\n", msgs.ToArray()),
+                        "พบรายการอยู่ระหว่างดำเนินการ", "warn", "20000");
+            return true;
         }
         #endregion
 

@@ -651,35 +651,24 @@ namespace Tool_Equipment_Control_System
             {
                 dt.Columns.Add("RowNo", typeof(int));
                 dt.Columns.Add("DisplayStatus", typeof(string));
+                dt.Columns.Add("ProcUrl", typeof(string));   // ✅ url เอกสารที่ติดอยู่
+                dt.Columns.Add("ProcDoc", typeof(string));   // ✅ เลขเอกสาร
             }
 
-            // ── ดึงรายการที่กำลังยืมอยู่ (status ≠ 1, 100, 999) ──
-            var borrowingSet = new System.Collections.Generic.HashSet<string>(
-                StringComparer.OrdinalIgnoreCase);
-
-            string strBorrow =
-                "SELECT DISTINCT tool_id, sub_id, system_id" +
-                " FROM Borrow_List" +
-                " WHERE status_id NOT IN (1,100,999)";
-
-            dc.QryDT_P(conn, strBorrow);
-
-            foreach (DataRow br in dc.dt.Rows)
-            {
-                string key = br["tool_id"] + "|" + br["sub_id"] + "|" + br["system_id"];
-                borrowingSet.Add(key);
-            }
+            // ── อุปกรณ์ที่ติดกระบวนการ AAD1–AAD4 (query เดียว) — อ้างอิง Borrow2 ──
+            var procMap = GetProcessMap(litIssueNo.Text.Trim());
 
             int rowNo = 1;
             foreach (DataRow row in dt.Rows)
             {
                 row["RowNo"] = rowNo++;
 
-                string checkKey = row["tool_id"] + "|" + row["sub_no"] + "|" + row["sys_status"];
-
-                if (borrowingSet.Contains(checkKey))
+                ProcInfo proc;
+                if (procMap.TryGetValue(ProcKey(row["tool_id"], row["sub_no"], row["sys_status"]), out proc))
                 {
-                    row["DisplayStatus"] = "อยู่ระหว่างยืม";
+                    row["DisplayStatus"] = proc.Label;
+                    row["ProcUrl"] = proc.Url;
+                    row["ProcDoc"] = proc.DocNo;
                 }
                 else
                 {
@@ -687,6 +676,8 @@ namespace Tool_Equipment_Control_System
                     row["DisplayStatus"] = (statusId == 1 || statusId == 2)
                         ? row["status"].ToString()
                         : "Spare : " + row["status"];
+                    row["ProcUrl"] = "";
+                    row["ProcDoc"] = "";
                 }
             }
 
@@ -812,7 +803,6 @@ namespace Tool_Equipment_Control_System
             if (duringBorrowCheck())
             {
                 BindBorrowList();
-                alert_toast("พบรายการอยู่ระหว่างการยืม : ไม่สามารถเบิกได้", "พบรายการอยู่่ระหว่างการยืม", "warn", "5000");
             }
             else
             {
@@ -826,6 +816,13 @@ namespace Tool_Equipment_Control_System
             if (!IsAadEditable())
             {
                 alert_toast("AAD Confirm ได้เฉพาะเอกสารสถานะรอ AAD Confirm (โหมด Confirm)", "ไม่สามารถยืนยันได้", "warn", "10000");
+                return;
+            }
+
+            // ✅ ตรวจรายการที่ติดกระบวนการอื่นก่อน AAD Confirm
+            if (duringBorrowCheck())
+            {
+                BindBorrowList();
                 return;
             }
 
@@ -876,6 +873,13 @@ namespace Tool_Equipment_Control_System
             if (!ReadAndValidateConfirmModal())
             {
                 ReopenConfirmModal();
+                return;
+            }
+
+            // ✅ ตรวจซ้ำก่อนบันทึกจริง (ระหว่างเปิด Modal อาจมีเอกสารอื่นดึงอุปกรณ์ไปแล้ว)
+            if (duringBorrowCheck())
+            {
+                BindBorrowList();
                 return;
             }
 
@@ -1026,6 +1030,13 @@ namespace Tool_Equipment_Control_System
                 return;
             }
             #endregion
+
+            // ✅ ตรวจรายการที่ติดกระบวนการอื่น
+            if (duringBorrowCheck())
+            {
+                BindBorrowList();
+                return;
+            }
 
             // -- ผ่านการตรวจ → เปิด Modal ยืนยัน Status Use / ผู้รับผิดชอบ (บันทึกจริงใน btnConfirmModalOk_Click)
             ViewState["CFM_FLOW"] = "direct";
@@ -1379,8 +1390,8 @@ namespace Tool_Equipment_Control_System
         {
             GridViewRow row = (sender as LinkButton).NamingContainer as GridViewRow;
             HiddenField hdtool_id = (HiddenField)row.FindControl("hdtoolId");
-            HiddenField hdtool_sub = (HiddenField)row.FindControl("hdtoolSub");
-            HiddenField hd_sys_status = (HiddenField)row.FindControl("hdsystemId");
+            HiddenField hdtool_sub = FindHd(row, "hdtoolSub", "hdToolSub");
+            HiddenField hd_sys_status = FindHd(row, "hdsystemId", "hdSystemId");
 
             if (hdtool_id == null || hdtool_sub == null || hd_sys_status == null)
             {
@@ -1483,8 +1494,8 @@ namespace Tool_Equipment_Control_System
         {
             GridViewRow row = (sender as LinkButton).NamingContainer as GridViewRow;
             HiddenField hdtool_id = (HiddenField)row.FindControl("hdtoolId");
-            HiddenField hdtool_sub = (HiddenField)row.FindControl("hdtoolSub");
-            HiddenField hd_sys_status = (HiddenField)row.FindControl("hdsystemId");
+            HiddenField hdtool_sub = FindHd(row, "hdtoolSub", "hdToolSub");
+            HiddenField hd_sys_status = FindHd(row, "hdsystemId", "hdSystemId");
 
             if (hdtool_id == null || hdtool_sub == null || hd_sys_status == null)
             {
@@ -1612,30 +1623,26 @@ namespace Tool_Equipment_Control_System
         // Gridview : gvSearchResult
         protected void gvSearchResult_RowDataBound(object sender, GridViewRowEventArgs e)
         {
-            if (e.Row.RowType == DataControlRowType.DataRow)
+            if (e.Row.RowType != DataControlRowType.DataRow) return;
+
+            e.Row.Attributes["id"] = "rowSearch_" + e.Row.RowIndex;
+
+            DataRowView rowView = e.Row.DataItem as DataRowView;
+            if (rowView == null) return;
+
+            string displayStatus = Convert.ToString(rowView["DisplayStatus"]);
+            if (!displayStatus.StartsWith("AAD")) return;   // ไม่ติดกระบวนการ
+
+            // ✅ ติดกระบวนการใด ๆ → ปิดปุ่ม Add + ไฮไลต์แถว
+            e.Row.CssClass = "row-locked";
+
+            Button btnAdd = e.Row.Cells[1].Controls.OfType<Button>().FirstOrDefault();
+            if (btnAdd != null)
             {
-                e.Row.Attributes["id"] = "rowSearch_" + e.Row.RowIndex;
-
-                // ── ✅ ถ้า DisplayStatus = อยู่ระหว่างยืม → disable ปุ่ม Add ──
-                DataRowView rowView = e.Row.DataItem as DataRowView;
-                if (rowView != null)
-                {
-                    string displayStatus = rowView["DisplayStatus"].ToString();
-
-                    if (displayStatus == "อยู่ระหว่างยืม")
-                    {
-                        Button btnAdd = e.Row.Cells[1].Controls
-                            .OfType<Button>()
-                            .FirstOrDefault();
-
-                        if (btnAdd != null)
-                        {
-                            btnAdd.Enabled = false;
-                            btnAdd.ToolTip = "อุปกรณ์นี้อยู่ระหว่างการยืม";
-                            btnAdd.CssClass = "btn btn-secondary btn-sm";
-                        }
-                    }
-                }
+                btnAdd.Enabled = false;
+                btnAdd.ToolTip = "อุปกรณ์นี้อยู่ระหว่างดำเนินการ : " + displayStatus +
+                                 " [" + Convert.ToString(rowView["ProcDoc"]) + "]";
+                btnAdd.CssClass = "btn btn-secondary btn-sm";
             }
         }
         protected void gvSearchResult_RowCommand(object sender, GridViewCommandEventArgs e)
@@ -1646,21 +1653,23 @@ namespace Tool_Equipment_Control_System
             GridViewRow row = gvSearchResult.Rows[rowIndex];
 
             HiddenField hdtoolId = (HiddenField)row.FindControl("hdtoolId");
-            HiddenField hdtoolSub = (HiddenField)row.FindControl("hdtoolSub");
-            HiddenField hdsystemId = (HiddenField)row.FindControl("hdsystemId");
+            HiddenField hdtoolSub = FindHd(row, "hdtoolSub", "hdToolSub");
+            HiddenField hdsystemId = FindHd(row, "hdsystemId", "hdSystemId");
 
             string toolId = hdtoolId.Value;
             string subId = hdtoolSub.Value;
             string systemId = hdsystemId.Value;
 
-            // ── ตรวจ DisplayStatus ──
+            // ── ตรวจ DisplayStatus : ติดกระบวนการ AAD ใด ๆ → ไม่ให้ Add ──
             DataTable dtSearch = ViewState["SearchResult"] as DataTable;
             if (dtSearch != null && rowIndex < dtSearch.Rows.Count)
             {
-                if (dtSearch.Rows[rowIndex]["DisplayStatus"].ToString() == "อยู่ระหว่างยืม")
+                string ds = Convert.ToString(dtSearch.Rows[rowIndex]["DisplayStatus"]);
+                if (ds.StartsWith("AAD"))
                 {
-                    alert_toast("อุปกรณ์นี้อยู่ระหว่างการยืม ไม่สามารถเพิ่มรายการได้",
-                                "ไม่สามารถเพิ่มได้", "warn", "5000");
+                    string doc = dtSearch.Columns.Contains("ProcDoc") ? Convert.ToString(dtSearch.Rows[rowIndex]["ProcDoc"]) : "";
+                    alert_toast("อุปกรณ์นี้อยู่ระหว่างดำเนินการ : " + ds + (doc != "" ? " [" + doc + "]" : "") +
+                                "\nไม่สามารถเพิ่มรายการได้", "ไม่สามารถเพิ่มได้", "warn", "8000");
                     return;
                 }
             }
@@ -1761,7 +1770,17 @@ namespace Tool_Equipment_Control_System
                 if (row == null) return;
                 DataRow cRow = row.Row;
 
-                // highlight row ที่กำลังยืม
+                // ✅ ติดกระบวนการอื่น (จาก duringBorrowCheck) → ไฮไลต์ทุกโหมด
+                string procLabel = ColVal(cRow, "ProcLabel");
+                if (procLabel != "")
+                {
+                    foreach (TableCell cell in e.Row.Cells)
+                        cell.Style["background-color"] = "#fff3cd";
+                    e.Row.Style["border-left"] = "8px solid #dc3545";
+                    e.Row.ToolTip = "อยู่ระหว่างดำเนินการ : " + procLabel;
+                }
+
+                // highlight row ที่กำลังยืม (เดิม)
                 if (mode == "edit")
                 {
                     string statusId = ColVal(cRow, "StatusId");
@@ -2256,7 +2275,6 @@ namespace Tool_Equipment_Control_System
                 if (duringBorrowCheck())
                 {
                     BindBorrowList();
-                    alert_toast("พบรายการอยู่ระหว่างการยืม : ไม่สามารถยืมได้", "พบรายการอยู่่ระหว่างการยืม", "warn", "5000");
                     return;
                 }
 
@@ -2342,8 +2360,6 @@ namespace Tool_Equipment_Control_System
             if (duringBorrowCheck())
             {
                 BindBorrowList();
-                alert_toast("พบรายการอยู่ระหว่างการยืม : ไม่สามารถยืมได้",
-                            "พบรายการอยู่่ระหว่างการยืม", "warn", "5000");
                 return;
             }
 
@@ -3963,10 +3979,99 @@ namespace Tool_Equipment_Control_System
             ViewState["EMP_EMAIL"] = hdtxtEmail.Value;
         }
         // ── Helper : เลือก CSS class ตาม DisplayStatus ──
+        #region --- Helper : On Process Check (AAD1–AAD4) — อ้างอิง Borrow2 ---
+
+        [Serializable]
+        private class ProcInfo
+        {
+            public string Label;   // "AAD1 : ยืม"
+            public string DocNo;   // "AAD1-26-00039"
+            public string Url;     // borrow_tool2.aspx?k=...&mode=view
+        }
+
+        private static string ProcKey(object toolId, object subId, object systemId)
+        {
+            return Convert.ToString(toolId).Trim() + "|" + Convert.ToString(subId).Trim() + "|" + Convert.ToString(systemId).Trim();
+        }
+
+        /// <summary>
+        /// อุปกรณ์ทั้งหมดที่ติดกระบวนการอยู่ (1 &lt; status_id &lt; 100) — key = tool_id|sub_id|system_id
+        /// ไม่รวมเอกสารเบิกฉบับปัจจุบัน (currentDocNo) / ตัวเดียวติดหลายเอกสาร → เอาตามลำดับ AAD1 → AAD4
+        /// </summary>
+        private Dictionary<string, ProcInfo> GetProcessMap(string currentDocNo)
+        {
+            var map = new Dictionary<string, ProcInfo>(StringComparer.OrdinalIgnoreCase);
+
+            string sql = @"
+                SELECT 1 AS ord, Doc_No, tool_id, sub_id, system_id FROM Borrow_List
+                 WHERE status_id > 1 AND status_id < 100
+                UNION ALL
+                SELECT 2, Doc_No, tool_id, sub_id, system_id FROM NotificationofChange_List
+                 WHERE status_id > 1 AND status_id < 100
+                UNION ALL
+                SELECT 3, Doc_No, tool_id, sub_id, system_id FROM Withdraw_List
+                 WHERE status_id > 1 AND status_id < 100 AND Doc_No <> @doc
+                UNION ALL
+                SELECT 4, Doc_No, tool_id, sub_id, system_id FROM Storage_List
+                 WHERE status_id > 1 AND status_id < 100
+                ORDER BY ord";
+
+            dc.QryDT_P(conn, sql,
+                new SqlParameter("@doc", SqlDbType.NVarChar)
+                { Value = string.IsNullOrEmpty(currentDocNo) ? "-" : currentDocNo });
+
+            foreach (DataRow r in dc.dt.Rows)
+            {
+                string key = ProcKey(r["tool_id"], r["sub_id"], r["system_id"]);
+                if (map.ContainsKey(key)) continue;   // เก็บอันแรกตามลำดับ ord
+
+                string docNo = GetVal(r, "Doc_No");
+                string label, page;
+                switch (Convert.ToInt32(r["ord"]))
+                {
+                    case 1: label = "AAD1 : ยืม"; page = "borrow_tool2.aspx"; break;
+                    case 2: label = "AAD2 : แจ้งเปลี่ยนแปลง"; page = "NotificationOfChange.aspx"; break;
+                    case 3: label = "AAD3 : เบิก"; page = "withdraw2.aspx"; break;
+                    default: label = "AAD4 : จัดเก็บ"; page = "storage.aspx"; break;
+                }
+
+                string k = Convert.ToBase64String(Encoding.UTF8.GetBytes(docNo));
+                map[key] = new ProcInfo
+                {
+                    Label = label,
+                    DocNo = docNo,
+                    Url = page + "?k=" + HttpUtility.UrlEncode(k) + "&mode=view"
+                };
+            }
+            return map;
+        }
+
+        /// <summary>badge สถานะ : ติดกระบวนการ → ลิงก์เปิดเอกสาร (แท็บใหม่) + เลขเอกสาร</summary>
+        protected string BuildStatusBadge(object displayStatus, object procUrl, object procDoc)
+        {
+            string ds = Convert.ToString(displayStatus);
+            string url = Convert.ToString(procUrl);
+            string doc = Convert.ToString(procDoc);
+            string cls = GetStatusBadgeClass(ds);
+
+            if (string.IsNullOrEmpty(url))
+                return "<span class='badge " + cls + "'>" + HttpUtility.HtmlEncode(ds) + "</span>";
+
+            return "<a href='" + HttpUtility.HtmlAttributeEncode(url) + "' target='_blank' rel='noopener'" +
+                   " class='badge " + cls + " badge-link'" +
+                   " title='อยู่ระหว่างดำเนินการ — คลิกเพื่อดูเอกสาร " + HttpUtility.HtmlAttributeEncode(doc) + "'>" +
+                   HttpUtility.HtmlEncode(ds) + " &#128279;</a>" +
+                   "<div class='proc-doc'>" + HttpUtility.HtmlEncode(doc) + "</div>";
+        }
+
+        #endregion
+
         protected string GetStatusBadgeClass(string displayStatus)
         {
-            if (displayStatus == "อยู่ระหว่างยืม")
-                return "badge-borrowing";          // สีแดง/ส้ม
+            displayStatus = displayStatus ?? "";
+
+            if (displayStatus.StartsWith("AAD") || displayStatus == "อยู่ระหว่างยืม")
+                return "badge-borrowing";          // แดง — ติดกระบวนการ
 
             if (displayStatus.StartsWith("Spare"))
                 return "badge-spare";              // สีเหลือง
@@ -4093,43 +4198,55 @@ namespace Tool_Equipment_Control_System
         }
 
 
-        // ============================================================
-        // duringBorrowCheck() — parameterized + SqlDbType.Int
-        // ── เช็คตาราง Borrow_List (การเบิกต้องเช็คว่าของถูกยืมอยู่หรือไม่) ──
-        // ============================================================
+        /// <summary>หา HiddenField ในแถว — รองรับชื่อ ID ที่ต่างกันระหว่าง Step 2 / Step 3 (hdsystemId / hdSystemId)</summary>
+        private static HiddenField FindHd(Control row, params string[] ids)
+        {
+            if (row == null) return null;
+            foreach (string id in ids)
+            {
+                HiddenField h = row.FindControl(id) as HiddenField;
+                if (h != null) return h;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// ตรวจรายการที่ติดกระบวนการอื่น (AAD1–AAD4) — อ้างอิง Borrow2
+        /// แจ้งเตือนเองพร้อมระบุรายการ / กระบวนการ / เลขเอกสาร และ mark แถว (ProcLabel) ให้ไฮไลต์
+        /// </summary>
         private bool duringBorrowCheck()
         {
             DataTable dt = BorrowListDT;
-            bool borrowCheck = false;
+            if (!dt.Columns.Contains("ProcLabel")) dt.Columns.Add("ProcLabel", typeof(string));
+
+            var procMap = GetProcessMap(litIssueNo.Text.Trim());
+            var msgs = new List<string>();
+            int no = 0;
 
             foreach (DataRow r in dt.Rows)
             {
-                if (r["ToolId"] == DBNull.Value || r["ToolSub"] == DBNull.Value || r["SystemId"] == DBNull.Value)
-                    continue;
-
+                if (r.RowState == DataRowState.Deleted) continue;
                 if (GetVal(r, "CompareData") == "Delete") continue;
+                no++;
+                r["ProcLabel"] = "";
+                if (r["ToolId"] == DBNull.Value || r["ToolSub"] == DBNull.Value || r["SystemId"] == DBNull.Value) continue;
 
-                string strDB =
-                    "SELECT * FROM Borrow_List" +
-                    " WHERE tool_id = @tool_id" +
-                    "   AND sub_id = @sub_id" +
-                    "   AND system_id = @system_id" +
-                    "   AND status_id IN (50, 90)";
+                ProcInfo proc;
+                if (!procMap.TryGetValue(ProcKey(r["ToolId"], r["ToolSub"], r["SystemId"]), out proc)) continue;
 
-                dc.QryDT_P(conn, strDB,
-                    new SqlParameter("@tool_id", SqlDbType.Int) { Value = Convert.ToInt32(r["ToolId"]) },
-                    new SqlParameter("@sub_id", SqlDbType.Int) { Value = Convert.ToInt32(r["ToolSub"]) },
-                    new SqlParameter("@system_id", SqlDbType.Int) { Value = Convert.ToInt32(r["SystemId"]) });
-
-                DataTable duringBorrow = dc.dt;
-
-                if (duringBorrow.Rows.Count > 0)
-                {
-                    r["StatusId"] = duringBorrow.Rows[0]["status_id"];
-                    borrowCheck = true;
-                }
+                r["ProcLabel"] = proc.Label + " [" + proc.DocNo + "]";
+                string name = GetVal(r, "FixAssetNo") != "" ? GetVal(r, "FixAssetNo")
+                            : (GetVal(r, "ControlNo") != "" ? GetVal(r, "ControlNo") : GetVal(r, "ToolNo"));
+                msgs.Add("• รายการที่ " + no + " " + name + " → " + proc.Label + " [" + proc.DocNo + "]");
             }
-            return borrowCheck;
+
+            BorrowListDT = dt;
+            if (msgs.Count == 0) return false;
+
+            alert_toast("อุปกรณ์ต่อไปนี้อยู่ระหว่างดำเนินการในเอกสารอื่น ไม่สามารถเบิกได้\n" +
+                        "กรุณา Remove ออกจากรายการก่อน :\n" + string.Join("\n", msgs.ToArray()),
+                        "พบรายการอยู่ระหว่างดำเนินการ", "warn", "20000");
+            return true;
         }
 
 

@@ -1637,6 +1637,58 @@
         });
     </script>
 
+    <%--Step 3 : จำตำแหน่ง Scroll (หน้า + ตาราง) ก่อน Postback แล้วกลับมาที่เดิม--%>
+    <script>
+        (function () {
+            var saved = null;
+
+            function snap() {
+                saved = { x: window.pageXOffset, y: window.pageYOffset, wraps: {} };
+                var ws = document.querySelectorAll('.tbl-wrap');
+                for (var i = 0; i < ws.length; i++) {
+                    var key = ws[i].id || ('idx' + i);
+                    saved.wraps[key] = { l: ws[i].scrollLeft, t: ws[i].scrollTop };
+                }
+            }
+            function restore() {
+                if (!saved) return;
+                var ws = document.querySelectorAll('.tbl-wrap');
+                for (var i = 0; i < ws.length; i++) {
+                    var p = saved.wraps[ws[i].id || ('idx' + i)];
+                    if (p) { ws[i].scrollLeft = p.l; ws[i].scrollTop = p.t; }
+                }
+                window.scrollTo(saved.x, saved.y);
+            }
+
+            var hooked = false;
+            function hook() {                                            // Sys มีหลัง ScriptManager โหลดแล้ว
+                if (hooked || !(window.Sys && Sys.WebForms && Sys.WebForms.PageRequestManager)) return;
+                var prm = Sys.WebForms.PageRequestManager.getInstance();
+                prm.add_beginRequest(snap);
+                // หลัง adjustHeight / select2 / fixStickyColumns ทำงานเสร็จ ค่อยคืนตำแหน่ง
+                prm.add_endRequest(function () { setTimeout(restore, 0); setTimeout(restore, 80); });
+                hooked = true;
+            }
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', hook); else hook();
+            window.addEventListener('load', hook);
+        })();
+
+        // NG : เลือก Repair Status / Confirm By แล้ว → เอาสีเหลืองออกทันที (ไม่ต้องรอ Postback)
+        $(document).on('change', 'select.ddl-warning', function () {
+            if ($(this).val() === '') return;
+            this.style.border = '';
+            this.style.backgroundColor = '';
+            $(this).removeClass('ddl-warning');
+            $(this).next('.select2-container').find('.select2-selection')
+                .css({ border: '', backgroundColor: '' });
+        });
+    </script>
+
+    <%--Toast : แสดงหลายบรรทัด (รายการที่ติดกระบวนการ)--%>
+    <style>
+        .toast .message { white-space: pre-line; }
+    </style>
+
     <asp:ScriptManager runat="server" ID="scriptManager1" EnablePageMethods="true"></asp:ScriptManager>
 
     <asp:UpdateProgress ID="UpdateProgress1" runat="server" AssociatedUpdatePanelID="UP1">
@@ -2017,8 +2069,8 @@
                     <div class="card-body" style="margin-bottom:10px;">
                         
                         <%--Storage List : Fix Header + Fix คอลัมน์ ( # , Fix Asset , Control No , Tool No , No ) — อ้างอิง Borrow2--%>
-                        <div class="tbl-wrap step3-wrap" style="max-height: 350px;">
-                            <asp:GridView ID="gvStorageList" runat="server"
+                        <div id="wrapStorageList" class="tbl-wrap step3-wrap" style="max-height: 350px;">
+                            <asp:GridView ID="gvStorageList" runat="server" DataKeyNames="ToolId,ToolSub,SystemId"
                                 CssClass="data-table change-table fixed-header fx-table"
                                 style="min-width:2400px;"
                                 AutoGenerateColumns="false"

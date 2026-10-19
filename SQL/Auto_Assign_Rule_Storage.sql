@@ -5,6 +5,7 @@ GO
    Auto Assign : เพิ่มกฎสำหรับ Storage (storage.aspx — Modal AAD Confirm)
    ---------------------------------------------------------------------
    รันต่อจาก SQL/Auto_Assign_Rule.sql (รันซ้ำได้ — ทุกขั้นเช็คก่อนทำ)
+   ** ถ้าเคยรันไฟล์นี้แล้ว (ก่อนแก้ 2.1) → รันซ้ำอีกครั้งเพื่อขยาย cond_type **
 
    1) Auto_Assign_Rule.apply_to      : WITHDRAW (ค่าเริ่มต้น / กฎเดิมทั้งหมด) / STORAGE
    2) Auto_Assign_Rule_Cond.cond_type : เพิ่ม STATUS_ITEM / OKNG / REPAIR / REASON
@@ -34,6 +35,31 @@ IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_Auto_Assign_
 GO
 
 /* ---------- 2) cond_type ใหม่ ---------- */
+/* 2.1) ขยาย cond_type : เดิม nvarchar(10) — 'STATUS_ITEM' ยาว 11 ตัว
+        (Error : String or binary data would be truncated ... column 'cond_type')
+        ต้องปลด UNIQUE / INDEX / CHECK ที่ผูกคอลัมน์ก่อน ALTER แล้วสร้างกลับ */
+IF COL_LENGTH('dbo.Auto_Assign_Rule_Cond', 'cond_type') < 40          -- bytes : nvarchar(10) = 20 , nvarchar(20) = 40
+BEGIN
+    IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = 'UQ_Auto_Assign_Rule_Cond')
+        ALTER TABLE [dbo].[Auto_Assign_Rule_Cond] DROP CONSTRAINT [UQ_Auto_Assign_Rule_Cond];
+    IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Auto_Assign_Rule_Cond_type_value')
+        DROP INDEX [IX_Auto_Assign_Rule_Cond_type_value] ON [dbo].[Auto_Assign_Rule_Cond];
+    IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_Auto_Assign_Rule_Cond_type')
+        ALTER TABLE [dbo].[Auto_Assign_Rule_Cond] DROP CONSTRAINT [CK_Auto_Assign_Rule_Cond_type];
+
+    ALTER TABLE [dbo].[Auto_Assign_Rule_Cond] ALTER COLUMN [cond_type] [nvarchar](20) NOT NULL;
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = 'UQ_Auto_Assign_Rule_Cond')
+    ALTER TABLE [dbo].[Auto_Assign_Rule_Cond]
+        ADD CONSTRAINT [UQ_Auto_Assign_Rule_Cond] UNIQUE ([rule_id], [cond_type], [cond_value]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Auto_Assign_Rule_Cond_type_value')
+    CREATE INDEX [IX_Auto_Assign_Rule_Cond_type_value]
+        ON [dbo].[Auto_Assign_Rule_Cond]([cond_type], [cond_value]) INCLUDE ([rule_id]);
+GO
+
+/* 2.2) CHECK : ชนิดเงื่อนไขทั้งหมด */
 IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_Auto_Assign_Rule_Cond_type')
     ALTER TABLE [dbo].[Auto_Assign_Rule_Cond] DROP CONSTRAINT [CK_Auto_Assign_Rule_Cond_type];
 GO

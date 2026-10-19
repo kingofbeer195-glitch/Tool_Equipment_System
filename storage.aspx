@@ -1684,6 +1684,11 @@
         });
     </script>
 
+    <%--Requester : ข้อมูลจาก Snapshot (Requester_Info) เมื่อไม่พบใน HRMS--%>
+    <style>
+        .form-group input.fld-snapshot { background:#fdf6e3 !important; border-color:#ecd9a6 !important; color:#7a5b16 !important; }
+    </style>
+
     <%--Toast : แสดงหลายบรรทัด (รายการที่ติดกระบวนการ)--%>
     <style>
         .toast .message { white-space: pre-line; }

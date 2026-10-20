@@ -127,9 +127,15 @@ namespace Tool_Equipment_Control_System
                 get_ddl_cell_station(location_id);
 
                 // Show List Location , Cell , Station
-                ddl_location.SelectedValue = location_id;
-                ddl_cell.SelectedValue = tb_data.Rows[0]["location2_id"].ToString();
-                ddl_station.SelectedValue = tb_data.Rows[0]["station_id"].ToString();
+                // bind ddl_location ก่อน เพื่อเช็คว่ามีค่าในรายการไหม (SqlDataSource โหลดแค่ location 97)
+                ddl_location.DataBind();
+                // ค่าที่ไม่อยู่ในรายการ (เช่น Transfer = location 98, Cell ที่ is_use=0) -> เพิ่มเข้า list แทนการ error
+                SafeSelect(ddl_location, location_id,
+                    "select location1_name from master_location1 where location1_id = @id");
+                SafeSelect(ddl_cell, tb_data.Rows[0]["location2_id"].ToString(),
+                    "select location2_name from master_location2 where location2_id = @id");
+                SafeSelect(ddl_station, tb_data.Rows[0]["station_id"].ToString(),
+                    "select location3_name from master_location3 where location3_id = @id");
 
                 //Query List Dept Code
                 string div = tb_data.Rows[0]["division"].ToString();
@@ -299,6 +305,36 @@ namespace Tool_Equipment_Control_System
                 ddl_costcenterID.DataBind();
             }
         }
+        // เลือกค่าใน DropDownList แบบปลอดภัย: ถ้าไม่มีในรายการ ให้ดึงชื่อจาก DB แล้วเพิ่มเข้าไป
+        // (กัน ArgumentOutOfRangeException ของรายการที่ Transfer/Scrap หรือ master ถูกปิดใช้งาน)
+        private void SafeSelect(DropDownList ddl, string value, string nameSql)
+        {
+            if (string.IsNullOrEmpty(value)) return;
+
+            if (ddl.Items.FindByValue(value) == null)
+            {
+                string text = value;
+                bool opened = false;
+                try
+                {
+                    using (var cmd = new SqlCommand(nameSql, conn_jig))
+                    {
+                        cmd.Parameters.AddWithValue("@id", value);
+                        if (conn_jig.State != ConnectionState.Open) { conn_jig.Open(); opened = true; }
+                        object o = cmd.ExecuteScalar();
+                        if (o != null && o != DBNull.Value) text = o.ToString();
+                    }
+                }
+                catch { /* ใช้ value เป็นชื่อแทน */ }
+                finally { if (opened) conn_jig.Close(); }
+
+                ddl.Items.Add(new ListItem(text, value));
+            }
+
+            ddl.ClearSelection();
+            ddl.SelectedValue = value;
+        }
+
         protected void get_ddl_cell_station(string location_id)
         {
             if (location_id != "")

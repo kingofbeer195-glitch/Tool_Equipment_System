@@ -64,11 +64,39 @@ namespace Tool_Equipment_Control_System
                 menuStorage.Visible = true;     // จัดเก็บอุปกรณ์ (เปิดใช้งานแล้ว แต่ยังให้เฉพาะ Admin)
                 menuDashboard.Visible = true;   // Dashboard
                 menuEquipment.Visible = true;   // Equipment
-                menuEquipment.Visible = true;
+                Set_CalibrationBadge();         // แจ้งเตือนเครื่องมือวัด < 3 วัน
                 pnlMenu.Visible = true;
 
                 //Set_StatusCard();
                 Set_AdminMenuByLevel();
+            }
+        }
+        // ── Equipment : จำนวนเครื่องมือวัด (Measurement) ที่เหลือเวลาสอบเทียบ < 3 วัน (รวมเกินกำหนด) ──
+        protected void Set_CalibrationBadge()
+        {
+            try
+            {
+                string sql =
+                    " SELECT COUNT(*) FROM Tool_Equipment_List_View V" +
+                    " CROSS APPLY (SELECT COALESCE(TRY_CONVERT(date, V.duedate), TRY_CONVERT(date, V.DueDate1)) AS due_date) D" +
+                    " WHERE V.ID IS NOT NULL AND V.status_id NOT IN (11, 12)" +
+                    "   AND ( V.is_category = 11 OR LTRIM(RTRIM(V.category)) = 'Measurement' )" +
+                    "   AND D.due_date IS NOT NULL AND DATEDIFF(DAY, CAST(GETDATE() AS date), D.due_date) < 3";
+
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                {
+                    conn.Open();
+                    int count = Convert.ToInt32(cmd.ExecuteScalar());
+                    conn.Close();
+
+                    badgeCalib.Visible = count > 0;
+                    if (count > 0) badgeCalib.InnerText = count > 99 ? "99+" : count.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                if (conn.State == System.Data.ConnectionState.Open) conn.Close();
+                System.Diagnostics.Debug.WriteLine("[CalibrationBadge] " + ex.Message);
             }
         }
         protected void Set_AdminMenuByLevel()

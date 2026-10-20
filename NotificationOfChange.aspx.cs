@@ -158,7 +158,12 @@ namespace Tool_Equipment_Control_System
                 if (Doc_NO == "0")
                 {
                     Requester_getdata();
-                    UpdateModeButtonUI("change");
+
+                    // Admin เข้าหน้าสร้างใหม่ → เลือก "แจ้งเปลี่ยนเครื่องมือวัด" ให้อัตโนมัติ
+                    string startMode = IsAdmin ? MODE_MEASURE : "change";
+                    hfChangeMode.Value = startMode;
+                    ViewState["CHANGE_MODE"] = startMode;
+                    UpdateModeButtonUI(startMode);
 
                     // กำหนดค่าใน TextBox "วันที่ยืม" เป็นวันที่ปัจจุบัน
                     txtIssueDate.Text = DateTime.Today.ToString("dd-MMM-yyyy");
@@ -214,6 +219,23 @@ namespace Tool_Equipment_Control_System
             txt_ChangeComment.Attributes["maxlength"] = MAX_REASON_REMARK.ToString();
         }
 
+        // ── โหมดรายการ (change_type) ──────────────────
+        //  change  = แจ้งเปลี่ยน Location
+        //  swap    = แจ้งสลับ Tool / Equipment (จับคู่)
+        //  gauge   = แจ้งเปลี่ยนเครื่องมือวัด (Admin เท่านั้น) — Flow/รูปแบบเดียวกับ swap
+        //            (ใช้ค่าสั้น ≤ 6 ตัวอักษร ให้พอดีคอลัมน์ change_type เดิมที่เก็บ "change")
+        private const string MODE_MEASURE = "gauge";
+
+        private bool IsAdmin
+        {
+            get { return Session["admin"] != null && Session["admin"].ToString() == "99"; }
+        }
+        // โหมดที่ทำงานแบบจับคู่ (swap / measure)
+        private static bool IsPairMode(string mode) { return mode == "swap" || mode == MODE_MEASURE; }
+        private bool IsPairMode() { return IsPairMode(hfChangeMode.Value); }
+        private bool IsMeasureMode() { return hfChangeMode.Value == MODE_MEASURE; }
+        private string PairModeLabel() { return IsMeasureMode() ? "แจ้งเปลี่ยนเครื่องมือวัด" : "แจ้งสลับ"; }
+
         private string PageMode
         {
             get
@@ -239,10 +261,24 @@ namespace Tool_Equipment_Control_System
             string emp_id = Session["emp_id"].ToString();
             string admin = Session["admin"].ToString();
 
-            // ---------- Admin : ล็อกอินด้วย dept code ----------
+            // ---------- Admin : ลงข้อมูลผู้ร้องขอให้อัตโนมัติจาก User ที่ Login (ไม่ต้องกรอกรหัสพนักงาน) ----------
             if (admin == "99")
             {
-                // ยังไม่มี EmpId → รอให้ user กรอก
+                ViewState["OGN_DEPTCODE"] = "";
+                ViewState["OGN_DEPTNAME"] = "";
+                txtEmpId.Text = emp_id;
+
+                if (GetDataHRMS_CSharp(emp_id))
+                {
+                    SaveEmployeeToViewState();
+                    txtEmpId.ReadOnly = true;
+                    pnlNewEmp.Visible = false;
+                    return;
+                }
+
+                // fallback : Login เป็นรหัสที่ไม่ใช่พนักงาน (ไม่พบใน HRMS) → ให้กรอกเองแบบเดิม
+                txtEmpId.Text = "";
+                ClearEmployeeUI();
                 pnlNewEmp.Visible = true;
                 lblempNotice.Text = "กรุณากรอกรหัสพนักงาน [Employee ID]";
                 txtEmpId.ReadOnly = false;
@@ -403,6 +439,7 @@ namespace Tool_Equipment_Control_System
             {
                 string v = dc.dt.Rows[0]["change_type"].ToString().Trim();
                 if (v == "swap") mode = "swap";
+                else if (v == MODE_MEASURE) mode = MODE_MEASURE;
             }
 
             hfChangeMode.Value = mode;
@@ -748,7 +785,7 @@ namespace Tool_Equipment_Control_System
             bool a2Mismatch = (step == 2) && IsA2Mismatch(selectedKeys);
 
             // ✅ ข้อ 5 : โหมดสลับต้องเลือกเป็นคู่
-            if (hfChangeMode.Value == "swap" && !ValidateApprovePairs(selectedKeys))
+            if (IsPairMode() && !ValidateApprovePairs(selectedKeys))
             {
                 ReopenApproveModal();
                 return;
@@ -1236,7 +1273,7 @@ namespace Tool_Equipment_Control_System
 
             // เปิด modal
             ScriptManager.RegisterStartupScript(this, GetType(), "openApvModal",
-                "window.apvStep=" + step + "; window.apvSwap=" + (hfChangeMode.Value == "swap" ? "true" : "false") + ";" +
+                "window.apvStep=" + step + "; window.apvSwap=" + (IsPairMode() ? "true" : "false") + ";" +
                 "document.getElementById('" + pnlApproveModal.ClientID + "').style.display='flex'; " +
                 "if(typeof apvBindEvents==='function') apvBindEvents();", true);
         }
@@ -1301,7 +1338,7 @@ namespace Tool_Equipment_Control_System
                     if (GetVal(r, "CompareData") != "Delete" && GetVal(r, "A2Selected") != "") { isReturn = true; break; }
 
             // (2) ก่อน int no = 1;  → ลำดับคู่สำหรับแสดง
-            bool swap = (hfChangeMode.Value == "swap");
+            bool swap = (IsPairMode());
             var pairRank = new Dictionary<int, int>();
             var pairSeen = new Dictionary<int, int>();
             if (swap)
@@ -1414,7 +1451,16 @@ namespace Tool_Equipment_Control_System
                 return false;
             }
             if (!ValidateUseDeptSame()) return false;
-            if (hfChangeMode.Value == "swap" && !ValidateSwapPairs()) return false;
+            if (IsPairMode() && !ValidateSwapPairs()) return false;
+
+            // measure : ชื่อ Tool No / Model ไม่ตรงคู่ → เตือนอย่างเดียว ไม่ block การส่ง
+            if (IsMeasureMode())
+            {
+                int mm = CountToolNameMismatchPairs();
+                if (mm > 0)
+                    alert_toast("มี " + mm + " คู่ที่ Tool No / Model ไม่ตรงกัน\n(ระบบให้ดำเนินการต่อได้)",
+                                "ชื่อเครื่องมือวัดไม่ตรงกัน", "warn", "8000");
+            }
 
             // ── Step 5 ──
             if (string.IsNullOrEmpty(ddlReason_Change.SelectedValue) || ddlReason_Change.SelectedValue == "0")
@@ -2564,9 +2610,9 @@ namespace Tool_Equipment_Control_System
             // ✅ Sync ค่าใน GridView กลับ DT ก่อน (กันข้อมูลหายตอน postback)
             SyncGridViewToChangeListDT();
 
-            if (newMode == "swap")
+            if (IsPairMode(newMode))
             {
-                // ── ไป swap → เตือน + ล้าง Change List ──
+                // ── ไป swap / measure → เตือน + ล้าง Change List ──
                 DataTable dt = ChangeListDT;
 
                 for (int i = dt.Rows.Count - 1; i >= 0; i--)
@@ -2605,12 +2651,31 @@ namespace Tool_Equipment_Control_System
                 msLabelR.Attributes["class"] = "ms-label ms-right active";
                 msTrack.Attributes["class"] = "ms-track mode-swap";
             }
+            else if (mode == MODE_MEASURE)
+            {
+                // ไม่ active ฝั่งใดของสวิตช์ — active ที่ปุ่มเครื่องมือวัดแทน
+                msLabelL.Attributes["class"] = "ms-label ms-left";
+                msLabelR.Attributes["class"] = "ms-label ms-right";
+                msTrack.Attributes["class"] = "ms-track mode-measure";
+            }
             else
             {
                 msLabelL.Attributes["class"] = "ms-label ms-left active";
                 msLabelR.Attributes["class"] = "ms-label ms-right";
                 msTrack.Attributes["class"] = "ms-track mode-change";
             }
+
+            // ปุ่ม "แจ้งเปลี่ยนเครื่องมือวัด" : เห็นเฉพาะ Admin (หรือเอกสารที่เป็นโหมดนี้อยู่แล้ว เพื่อให้ผู้ Approve เห็นรูปแบบ)
+            msMeasure.Visible = IsAdmin || mode == MODE_MEASURE;
+            msMeasure.Attributes["class"] = "ms-measure" + (mode == MODE_MEASURE ? " active" : "");
+        }
+
+        // ── กดปุ่ม "แจ้งเปลี่ยนเครื่องมือวัด" (Admin) ──
+        protected void btnModeMeasure_Click(object sender, EventArgs e)
+        {
+            if (!IsAdmin) return;
+            if (IsMeasureMode()) { UpdateModeButtonUI(MODE_MEASURE); return; }
+            SwitchChangeType(MODE_MEASURE);   // ล้างรายการ + Approver เหมือนการสลับโหมดปกติ
         }
 
         /// <summary>เมื่อเลือก Use:Dept → ตรวจว่าทุกรายการเป็นกลุ่ม dept เดียวกัน (เตือน+ลงสี)</summary>
@@ -2778,7 +2843,7 @@ namespace Tool_Equipment_Control_System
                     return;
                 }
             }
-            else if (hfChangeMode.Value == "swap")
+            else if (IsPairMode())
             {
                 if (!ValidateSwapAddDept(newDept)) return;
             }
@@ -2811,15 +2876,28 @@ namespace Tool_Equipment_Control_System
             newRow["StationId"] = tool.Rows[0]["station_id"];
             newRow["CompareData"] = "Insert"; // ✅ mark Insert ทันที
 
-            if (hfChangeMode.Value == "swap")
+            if (IsPairMode())
                 newRow["PairKey"] = GetPairKeyForNewRow();
 
             dt.Rows.Add(newRow);
             ChangeListDT = dt;
 
             // ✅ โหมด swap : จับคู่ + สลับใหม่ทุกคู่
-            if (hfChangeMode.Value == "swap")
+            if (IsPairMode())
                 AutoSwapAllPairs();
+
+            // ✅ measure : คู่ที่เพิ่งครบ ชื่อ Tool No / Model ไม่ตรง → เตือน (ยังทำต่อได้)
+            bool warnToolName = false;
+            if (IsMeasureMode() && newRow["PairKey"] != DBNull.Value)
+            {
+                int pk = Convert.ToInt32(newRow["PairKey"]);
+                foreach (DataRow r in dt.Rows)
+                {
+                    if (r == newRow || GetVal(r, "CompareData") == "Delete" || r["PairKey"] == DBNull.Value) continue;
+                    if (Convert.ToInt32(r["PairKey"]) == pk)
+                    { warnToolName = IsToolNameMismatch(GetVal(r, "ToolNo"), GetVal(newRow, "ToolNo")); break; }
+                }
+            }
 
             BindChangeList_Display(); // ✅ แสดงเฉพาะ row ที่ไม่ใช่ Delete
             AutoGenerateApproverFlow();
@@ -2830,6 +2908,10 @@ namespace Tool_Equipment_Control_System
             ViewState["SearchResult"] = null;
             gvSearchResult.DataSource = null;
             gvSearchResult.DataBind();
+
+            if (warnToolName)
+                alert_toast("Tool No / Model ของคู่นี้ไม่ตรงกัน กรุณาตรวจสอบ\n(สามารถดำเนินการต่อได้)",
+                            "ชื่อเครื่องมือวัดไม่ตรงกัน", "warn", "8000");
         }
 
         // Gridview : gvChangeList
@@ -2868,8 +2950,12 @@ namespace Tool_Equipment_Control_System
                 }
 
                 // ✅ swap : แสดงการจับคู่
-                if (hfChangeMode.Value == "swap")
+                if (IsPairMode())
                     ApplyPairVisual(e.Row, cRow);
+
+                // ✅ measure : คู่ครบแล้ว Tool No / Model ต้องชื่อเดียวกัน — ไม่ตรง = เตือน (ยังทำต่อได้)
+                if (IsMeasureMode())
+                    ApplyToolNameWarn(e.Row, cRow);
 
                 // ✅ ผลอนุมัติรายรายการ + ไฮไลต์แถว
                 Literal litRes = e.Row.FindControl("litApvResult") as Literal;
@@ -2905,7 +2991,7 @@ namespace Tool_Equipment_Control_System
                     if (!string.IsNullOrEmpty(v)) ddlDept.SelectedValue = v;
 
                     // ✅ 4E-7 : โหมดสลับ ล็อก Use Dept (กำหนดอัตโนมัติจากคู่)
-                    if (hfChangeMode.Value == "swap")
+                    if (IsPairMode())
                     {
                         ddlDept.Enabled = false;
                         ddlDept.ToolTip = "โหมดสลับ : Dept ปลายทางกำหนดอัตโนมัติจากคู่สลับ";
@@ -2994,7 +3080,7 @@ namespace Tool_Equipment_Control_System
             }
 
             // ── STEP 3 : ลบ ──
-            if (hfChangeMode.Value == "swap")
+            if (IsPairMode())
             {
                 // หาสมาชิกคู่เดียวกันทั้งหมด
                 int pk = targetRow["PairKey"] == DBNull.Value ? 0 : Convert.ToInt32(targetRow["PairKey"]);
@@ -3025,7 +3111,7 @@ namespace Tool_Equipment_Control_System
             ChangeListDT = dt;
 
             // swap : re-swap คู่ที่เหลือ (เผื่อค่า Use เพี้ยน)
-            if (hfChangeMode.Value == "swap")
+            if (IsPairMode())
                 AutoSwapAllPairs();
 
             BindChangeList_Display();
@@ -3158,7 +3244,7 @@ namespace Tool_Equipment_Control_System
                 if (dr == null) continue;
 
                 DropDownList ddlDept = gvRow.FindControl("ddlDept") as DropDownList;
-                if (ddlDept != null && hfChangeMode.Value != "swap")          // ✅ swap : Use Dept มาจากคู่สลับ
+                if (ddlDept != null && !IsPairMode())          // ✅ swap : Use Dept มาจากคู่สลับ
                     dr["Use_DeptCode"] = string.IsNullOrEmpty(ddlDept.SelectedValue) ? (object)DBNull.Value : ddlDept.SelectedValue;
 
                 DropDownList ddlModel = gvRow.FindControl("ddlModel") as DropDownList;
@@ -3495,7 +3581,7 @@ namespace Tool_Equipment_Control_System
 
             if (!inGroup && groups.Count >= 2)
             {
-                alert_toast("โหมด 'แจ้งสลับ' มีได้ไม่เกิน 2 Dept\n[รายการที่เพิ่ม: " + newDept + " เป็น Dept ที่ 3]",
+                alert_toast("โหมด '" + PairModeLabel() + "' มีได้ไม่เกิน 2 Dept\n[รายการที่เพิ่ม: " + newDept + " เป็น Dept ที่ 3]",
                             "เกิน 2 Dept", "warn", "10000");
                 return false;
             }
@@ -3585,6 +3671,59 @@ namespace Tool_Equipment_Control_System
             }
         }
 
+        // ── measure : เทียบชื่อ Tool No / Model ของคู่ (ไม่สนตัวพิมพ์เล็ก-ใหญ่ / ช่องว่างซ้ำ) ──
+        private static string NormToolName(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            return string.Join(" ", s.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
+        }
+        private static bool IsToolNameMismatch(string a, string b)
+        {
+            return NormToolName(a) != NormToolName(b);
+        }
+
+        // ── measure : แสดง Text เตือนในช่อง Tool No / Model เมื่อชื่อไม่ตรงกับคู่ (ไม่ block การทำงาน) ──
+        private void ApplyToolNameWarn(GridViewRow row, DataRow cRow)
+        {
+            if (!cRow.Table.Columns.Contains("PairPartnerToolNo")) return;
+            if (cRow["PairPartnerToolNo"] == DBNull.Value) return;           // คู่ยังไม่ครบ → ยังไม่เทียบ
+
+            string mine = ColVal(cRow, "ToolNo");
+            string partner = cRow["PairPartnerToolNo"].ToString();
+            if (!IsToolNameMismatch(mine, partner)) return;
+
+            int idx = -1;
+            for (int i = 0; i < gvChangeList.Columns.Count; i++)
+            {
+                BoundField bf = gvChangeList.Columns[i] as BoundField;
+                if (bf != null && bf.DataField == "ToolNo") { idx = i; break; }
+            }
+            if (idx < 0 || idx >= row.Cells.Count) return;
+
+            TableCell cell = row.Cells[idx];
+            cell.Text = Server.HtmlEncode(mine) +
+                "<div class='toolname-warn'><span class='glyphicon glyphicon-warning-sign'></span> " +
+                "ชื่อไม่ตรงกับคู่ : " + Server.HtmlEncode(string.IsNullOrEmpty(partner) ? "-" : partner) + "</div>";
+            cell.ToolTip = "Tool No / Model ไม่ตรงกับคู่ — ตรวจสอบก่อนดำเนินการ (ยังสามารถทำต่อได้)";
+        }
+
+        // ── measure : จำนวนคู่ที่ชื่อ Tool No / Model ไม่ตรงกัน ──
+        private int CountToolNameMismatchPairs()
+        {
+            var map = new Dictionary<int, List<DataRow>>();
+            foreach (DataRow r in ChangeListDT.Rows)
+            {
+                if (GetVal(r, "CompareData") == "Delete" || r["PairKey"] == DBNull.Value) continue;
+                int pk = Convert.ToInt32(r["PairKey"]);
+                if (!map.ContainsKey(pk)) map[pk] = new List<DataRow>();
+                map[pk].Add(r);
+            }
+            int cnt = 0;
+            foreach (var m in map.Values)
+                if (m.Count == 2 && IsToolNameMismatch(GetVal(m[0], "ToolNo"), GetVal(m[1], "ToolNo"))) cnt++;
+            return cnt;
+        }
+
         // ── validate ก่อน Send (swap) ──
         private bool ValidateSwapPairs()
         {
@@ -3599,7 +3738,7 @@ namespace Tool_Equipment_Control_System
             }
 
             if (map.Count == 0)
-            { alert_toast("โหมด 'แจ้งสลับ' ต้องมีอย่างน้อย 1 คู่ (2 รายการ)", "ข้อมูลไม่ครบ", "warn", "10000"); return false; }
+            { alert_toast("โหมด '" + PairModeLabel() + "' ต้องมีอย่างน้อย 1 คู่ (2 รายการ)", "ข้อมูลไม่ครบ", "warn", "10000"); return false; }
 
             keys.Sort();
             int dispPair = 1;
@@ -3621,7 +3760,7 @@ namespace Tool_Equipment_Control_System
 
             if (groups.Count < 1 || groups.Count > 2)
             {
-                alert_toast("โหมด 'แจ้งสลับ' มีได้ไม่เกิน 2 Dept [พบ " + groups.Count + " Dept]",
+                alert_toast("โหมด '" + PairModeLabel() + "' มีได้ไม่เกิน 2 Dept [พบ " + groups.Count + " Dept]",
                             "จำนวน Dept ไม่ถูกต้อง", "warn", "10000");
                 return false;
             }
@@ -4508,12 +4647,13 @@ namespace Tool_Equipment_Control_System
             DataTable dt = ChangeListDT;
             DataTable dtDisplay = dt.Clone();
 
-            bool swap = (hfChangeMode.Value == "swap");
+            bool swap = (IsPairMode());
             if (swap)
             {
                 dtDisplay.Columns.Add("PairDisplayNo", typeof(int));
                 dtDisplay.Columns.Add("PairSlot", typeof(string));
                 dtDisplay.Columns.Add("PairInvalid", typeof(bool));
+                dtDisplay.Columns.Add("PairPartnerToolNo", typeof(string));   // measure : Tool No ของคู่ (ไว้เตือนชื่อไม่ตรง)
             }
 
             var active = new System.Collections.Generic.List<DataRow>();
@@ -4549,6 +4689,8 @@ namespace Tool_Equipment_Control_System
                         nr["PairDisplayNo"] = dispPair;
                         nr["PairSlot"] = (s == 0) ? "A" : "B";
                         nr["PairInvalid"] = invalid;
+                        if (m.Count == 2)
+                            nr["PairPartnerToolNo"] = GetVal(m[1 - s], "ToolNo");
                         dtDisplay.Rows.Add(nr);
                     }
                     dispPair++;
@@ -4690,7 +4832,7 @@ namespace Tool_Equipment_Control_System
             if (rows.Count == 0) return res;
 
             // ✅ โหมดสลับ : ต้องมี 2 แผนกเสมอ → A1 = กลุ่ม Dept แรก , A2 = อีกกลุ่ม
-            if (hfChangeMode.Value == "swap")
+            if (IsPairMode())
             {
                 var groups = new System.Collections.Generic.List<string>();
                 foreach (DataRow r in rows) AddDeptGroupDistinct(groups, ApvDept(r));
@@ -5331,7 +5473,7 @@ namespace Tool_Equipment_Control_System
                 AddDeptGroupDistinct(groups, ApvDept(r));
             }
 
-            if (hfChangeMode.Value == "swap")
+            if (IsPairMode())
             {
                 bool ready = groups.Count == 2 || IsSwapPairsValidSilent();
                 if (!ready) { ResetApproverFlowUI(); return; }
@@ -5935,7 +6077,7 @@ namespace Tool_Equipment_Control_System
                 // ══════════════════════════════════════════
                 DropDownList ddlDept = row.FindControl("ddlDept") as DropDownList;
 
-                bool blank_dept = hfChangeMode.Value != "swap"
+                bool blank_dept = !IsPairMode()
                                     && (ddlDept == null || string.IsNullOrEmpty(ddlDept.SelectedValue));
                 SetWarning_DDL(ddlDept, blank_dept);
                 if (blank_dept) hasBlank = true;

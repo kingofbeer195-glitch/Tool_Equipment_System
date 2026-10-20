@@ -730,10 +730,31 @@
             var m = document.getElementById('modeConfirmModal');
             if (m) m.style.display = 'none';
         }
+        // ยกเลิกจาก dialog → ไม่ค้างเป้าหมายเครื่องมือวัด
+        function cancelModeConfirm() { _modeTarget = null; closeModeConfirm(); }
+        var _modeTarget = null;   // 'measure' = ยืนยันจากปุ่มเครื่องมือวัด / null = สวิตช์ปกติ
         function confirmToggle() {
             closeModeConfirm();
+            if (_modeTarget === 'measure') { _modeTarget = null; doMeasurePostBack(); return; }
             var track = document.getElementById('<%= msTrack.ClientID %>');
             if (track) doToggleAnim(track);
+        }
+
+        /* Admin : เลือก "แจ้งเปลี่ยนเครื่องมือวัด" */
+        function selectMeasureMode() {
+            var track = document.getElementById('<%= msTrack.ClientID %>');
+            if (track && (track.getAttribute('data-lock') === '1' || track.getAttribute('data-busy') === '1')) return;
+            if (track && track.classList.contains('mode-measure')) return;   // อยู่โหมดนี้แล้ว
+
+            var hasItems = document.getElementById('<%= hfHasItems.ClientID %>').value === '1';
+            if (hasItems) { _modeTarget = 'measure'; openModeConfirm(); return; }
+            doMeasurePostBack();
+        }
+        function doMeasurePostBack() {
+            var track = document.getElementById('<%= msTrack.ClientID %>');
+            if (track) track.setAttribute('data-busy', '1');
+            showLoading();
+            __doPostBack('<%= btnModeMeasure.UniqueID %>', '');
         }
 
         function openApvChangeConfirm() {
@@ -1021,6 +1042,29 @@
         .ms-track.mode-swap .ms-knob-icon-right { display: inline; }
         .ms-track.mode-swap .ms-icon-right { visibility: hidden; }
         .ms-track.ms-clicked { animation: trackPulse .35s ease; }
+
+        /* โหมดแจ้งเปลี่ยนเครื่องมือวัด (Admin) : สวิตช์เป็นกลาง + ปุ่มเครื่องมือวัด active */
+        .ms-track.mode-measure { background: #9aa5b1; }
+        .ms-track.mode-measure .ms-knob { left: 29px; }
+        .ms-track.mode-measure .ms-knob-icon-left, .ms-track.mode-measure .ms-knob-icon-right { display: none; }
+        .ms-measure {
+            display: inline-flex; flex-direction: column; align-items: center; min-width: 170px; line-height: 1.2;
+            padding: 6px 14px; margin-left: 8px; border: 2px dashed #c9d2dc; border-radius: 12px;
+            cursor: pointer; transition: border-color .2s, background .2s;
+        }
+        .ms-measure .ms-title { font-size: 14px; font-weight: 700; padding: 2px 6px; color: #a7b0ba; }
+        .ms-measure .ms-sub   { font-size: 12px; font-weight: 500; color: #a7b0ba; }
+        .ms-measure:hover { border-color: #6f42c1; }
+        .ms-measure.active { border: 2px solid #6f42c1; background: #f4effc; }
+        .ms-measure.active .ms-title { color: #6f42c1; }
+        .ms-measure.active .ms-sub   { color: var(--muted); }
+
+        /* เตือนชื่อ Tool No / Model ไม่ตรงคู่ (โหมดเครื่องมือวัด) */
+        .toolname-warn {
+            margin-top: 4px; padding: 2px 6px; border-radius: 6px; display: inline-block;
+            background: #fff3cd; color: #8a5a00; border: 1px solid #f0c36d;
+            font-size: 11px; font-weight: 600; white-space: normal;
+        }
         @keyframes trackPulse {
             0%   { box-shadow: inset 0 1px 4px rgba(0,0,0,.2), 0 0 0 0 rgba(22,136,74,.5); }
             50%  { box-shadow: inset 0 1px 4px rgba(0,0,0,.2), 0 0 0 6px rgba(22,136,74,.2); }
@@ -1939,11 +1983,19 @@
                                 <span class="ms-title">แจ้งสลับ Tool / Equipment</span>
                                 <span class="ms-sub">จับคู่ทีละ 2 รายการ (ไม่เกิน 2 Dept)</span>
                             </span>
+
+                            <%-- Admin เท่านั้น : แจ้งเปลี่ยนเครื่องมือวัด (Flow เดียวกับแจ้งสลับ) --%>
+                            <span class="ms-measure" id="msMeasure" runat="server" visible="false"
+                                onclick="selectMeasureMode();" title="Admin : แจ้งเปลี่ยนเครื่องมือวัด">
+                                <span class="ms-title"><span class="glyphicon glyphicon-scale"></span> แจ้งเปลี่ยนเครื่องมือวัด</span>
+                                <span class="ms-sub">จับคู่ทีละ 2 รายการ · Admin เท่านั้น</span>
+                            </span>
                         </div>
 
                         <asp:LinkButton ID="btnModeToggle" runat="server" style="display:none;" OnClick="btnModeToggle_Click" />
                         <asp:LinkButton ID="btnModeChange" runat="server" style="display:none;" OnClick="btnModeChange_Click" />
                         <asp:LinkButton ID="btnModeSwap" runat="server" style="display:none;" OnClick="btnModeSwap_Click" />
+                        <asp:LinkButton ID="btnModeMeasure" runat="server" style="display:none;" OnClick="btnModeMeasure_Click" />
                     </div>
 
                 </asp:Panel>
@@ -2898,7 +2950,7 @@
                             และต้องค้นหาเพิ่มใหม่
                         </div>
                         <div class="mode-confirm-actions">
-                            <button type="button" class="btn-mc btn-mc-cancel" onclick="closeModeConfirm()">ยกเลิก</button>
+                            <button type="button" class="btn-mc btn-mc-cancel" onclick="cancelModeConfirm()">ยกเลิก</button>
                             <button type="button" class="btn-mc btn-mc-ok" onclick="confirmToggle()">ล้างและเปลี่ยน</button>
                         </div>
                     </div>

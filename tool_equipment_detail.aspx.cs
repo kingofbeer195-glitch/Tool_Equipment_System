@@ -1,4 +1,4 @@
-﻿//using Spire.Xls;
+//using Spire.Xls;
 using OfficeOpenXml.FormulaParsing.Excel.Functions.Text;
 using System;
 using System.Collections.Generic;
@@ -29,7 +29,7 @@ namespace Tool_Equipment_Control_System
 
         protected List<string> ImagePaths { get; set; }
         protected void Page_Load(object sender, EventArgs e)
-        {            
+        {
             tool_id = Request.QueryString["tool_id"];
             tool_sub = Request.QueryString["tool_sub"];
             sys_status = Request.QueryString["sys_status"];
@@ -93,7 +93,7 @@ namespace Tool_Equipment_Control_System
                 txt_fixassetNo.Text = tb_data.Rows[0]["FixAcces"].ToString();
 
 
-                
+
 
                 if (tb_data.Rows[0]["operation_date"].ToString() != "")
                 {
@@ -158,7 +158,7 @@ namespace Tool_Equipment_Control_System
                 //---------------------------------------------
                 #region
 
-               
+
                 txt_assetName.Text = tb_data.Rows[0]["asset_name"].ToString();
 
                 var checkTypeObj = tb_data.Rows[0]["check_type"];
@@ -191,7 +191,13 @@ namespace Tool_Equipment_Control_System
 
                 var checkTypeObj_costcenter = tb_data.Rows[0]["costcenterID"];
 
-                if (checkTypeObj_costcenter == DBNull.Value || string.IsNullOrEmpty(checkTypeObj_costcenter.ToString()))
+                if (IsTransferItem())
+                {
+                    // Transfer (location 98 = Supplier) -> ไม่มี Cost Center
+                    ddl_costcenterID.SelectedValue = "0";
+                    txt_costcenterName.Text = "-";
+                }
+                else if (checkTypeObj_costcenter == DBNull.Value || string.IsNullOrEmpty(checkTypeObj_costcenter.ToString()))
                 {
                     ddl_costcenterID.SelectedValue = "0";
                     txt_costcenterName.Text = "-";
@@ -208,8 +214,8 @@ namespace Tool_Equipment_Control_System
                     string str_costcenterName = "select* from View_dept_master where dept_code = '" + costcenterID + "'";
                     dc.QryDT(conn, str_costcenterName);
                     txt_costcenterName.Text = dc.dt.Rows[0]["dept_name_full"].ToString();
-                }                       
-               
+                }
+
 
                 //Control No , Serial No , Equipment Model , Manuafaxcture
                 txt_controlNo.Text = DisplayString(tb_data.Rows[0]["control_no"]);
@@ -223,7 +229,7 @@ namespace Tool_Equipment_Control_System
                 #endregion
             }
             Get_image();
-            
+
         }
         protected void Get_image()
         {
@@ -285,6 +291,17 @@ namespace Tool_Equipment_Control_System
                 ddl_dept.DataBind();
             }
         }
+
+        private const string LOCATION_SUPPLIER = "98"; // Transfer -> Supplier
+
+        // รายการที่ Transfer แล้ว (location1_id = 98)
+        private bool IsTransferItem()
+        {
+            return tb_data != null && tb_data.Rows.Count > 0
+                && tb_data.Columns.Contains("location1_id")
+                && tb_data.Rows[0]["location1_id"].ToString().Trim() == LOCATION_SUPPLIER;
+        }
+
         protected void Get_ddl_costcenterID(string div)
         {
             string str = " select* from View_dept_master order by dept_name2 "; // + (div == "" ? "" : " where division = "+ div);
@@ -343,7 +360,7 @@ namespace Tool_Equipment_Control_System
                 string str = " select* from master_location2 where location1_id = " + location_id + " and is_use=1 order by location2_name ";
                 dc.QryDT(conn_jig, str);
                 if (dc.dt.Rows.Count > 0)
-                {                    
+                {
                     ddl_cell.DataSource = dc.dt;
                     ddl_cell.DataValueField = "location2_id";
                     ddl_cell.DataTextField = "location2_name";
@@ -355,7 +372,7 @@ namespace Tool_Equipment_Control_System
                 str = " select* from master_location3 where location1_id = " + location_id + " order by location3_name";
                 dc.QryDT(conn_jig, str);
                 if (dc.dt.Rows.Count > 0)
-                {                    
+                {
                     ddl_station.DataSource = dc.dt;
                     ddl_station.DataValueField = "location3_id";
                     ddl_station.DataTextField = "location3_name";
@@ -364,7 +381,7 @@ namespace Tool_Equipment_Control_System
                 // lb_test.Text = str;
                 //  }
             }
-        }              
+        }
         protected void get_ddl_responsible(string dept_code)
         {
             //string div_id = hd_divID.Value.ToString();
@@ -440,7 +457,7 @@ namespace Tool_Equipment_Control_System
             ddl_boi.Enabled = true; //Check BOI
             txt_price.Enabled = true; txt_price.CssClass = (txt_price.CssClass += " open_edit").Trim(); //Price
             txt_prpo.Enabled = true; txt_prpo.CssClass = (txt_prpo.CssClass += " open_edit").Trim();    //PR/PO
-            
+
             //-- Row3
             //ddl_costcenterID.Enabled = true;
             //ddl_classCD.Enabled = true; //Class Code
@@ -603,7 +620,8 @@ namespace Tool_Equipment_Control_System
                     update += " ,[po] = '" + txt_prpo.Text.Trim().Replace("'", "''") + "' ";
                 if (parsedPrice(tb_data.Rows[0]["price"].ToString()) != parsedPrice(txt_price.Text))
                     update += " ,[price] = '" + ParsePriceFromText(txt_price.Text) + "' ";
-                if (tb_data.Rows[0]["costcenterID"].ToString() != ddl_costcenterID.SelectedValue)
+                // Transfer: Cost Center แสดง "-" เฉยๆ ไม่เขียนทับค่าเดิมใน DB
+                if (!IsTransferItem() && tb_data.Rows[0]["costcenterID"].ToString() != ddl_costcenterID.SelectedValue)
                     update += " ,[costcenterID] = '" + ddl_costcenterID.SelectedValue + "' ";
                 if (tb_data.Rows[0]["control_no"].ToString() != txt_controlNo.Text.Trim())
                     update += " ,[control_no] = '" + txt_controlNo.Text.Trim().Replace("'", "''") + "' ";
@@ -664,7 +682,7 @@ namespace Tool_Equipment_Control_System
 
             RefreshChosenColors();
 
-        }               
+        }
         protected void btn_picture_Click(object sender, EventArgs e)
         {
             string tool_id = Request.QueryString["tool_id"];
@@ -766,7 +784,7 @@ namespace Tool_Equipment_Control_System
         //        string classCD_Name = dc.dt.Rows[0]["classCD_Name"].ToString();
         //        txt_classNM.Text = classCD_Name;
         //    }
-  
+
         //}
 
         protected string parsedPrice(object price)

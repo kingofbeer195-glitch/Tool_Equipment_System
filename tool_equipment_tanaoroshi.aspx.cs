@@ -386,11 +386,15 @@ namespace Tool_Equipment_Control_System
             { extra += " AND H.cell_id = @cellId"; prms.Add(new SqlParameter("@cellId", SafeInt(ddl_cell.SelectedValue))); }
 
             // status filter : ค่าจาก hidden field (set โดยปุ่ม chip)
+            // chip ทั้ง 4 แยกกันไม่ซ้อน : OK + Change + Other Dept + Not Found = รายการทั้งหมด
+            //  - Other Dept = ชิ้นของ dept อื่น ที่ถูก confirm มาอยู่ dept นี้
+            //  - OK / Change / Not Found = เฉพาะชิ้นของ dept นี้เอง (ไม่รวม Other Dept)
             string st = hf_status_filter.Value;
-            if (st == "1") extra += " AND H.check_id = 1";
-            else if (st == "2") extra += " AND H.check_id = 2";
-            else if (st == "3") extra += " AND (H.check_id = 3 OR H.check_id IS NULL)";
-            else if (st == "4") { extra += " AND H.dept_new = @deptOut"; prms.Add(new SqlParameter("@deptOut", GetDeptCode())); }
+            string outCond = BuildOutDeptCond("H", prms);
+            if (st == "1") extra += " AND H.check_id = 1 AND NOT " + outCond;
+            else if (st == "2") extra += " AND H.check_id = 2 AND NOT " + outCond;
+            else if (st == "3") extra += " AND (H.check_id = 3 OR H.check_id IS NULL) AND NOT " + outCond;
+            else if (st == "4") extra += " AND " + outCond;
 
             // scan keyword filter (asset_no หรือ control_no)
             string scanKw = ViewState["SCAN_KEYWORD"] != null ? ViewState["SCAN_KEYWORD"].ToString() : "";
@@ -416,19 +420,19 @@ namespace Tool_Equipment_Control_System
             //string extra = BuildPicRspFilter("H", prms) + BuildDateFilter("H", prms);
             string extra = BuildTab2ScopeFilter("H", prms) + BuildDateFilter("H", prms);
 
-            prms.Add(new SqlParameter("@deptOutCnt", GetDeptCode()));
+            string outCond = BuildOutDeptCond("H", prms);
 
             if (!string.IsNullOrEmpty(ddl_model.SelectedValue))
-            { extra += " AND model_id = @modelId"; prms.Add(new SqlParameter("@modelId", SafeInt(ddl_model.SelectedValue))); }
+            { extra += " AND H.model_id = @modelId"; prms.Add(new SqlParameter("@modelId", SafeInt(ddl_model.SelectedValue))); }
             if (!string.IsNullOrEmpty(ddl_cell.SelectedValue))
-            { extra += " AND cell_id = @cellId"; prms.Add(new SqlParameter("@cellId", SafeInt(ddl_cell.SelectedValue))); }
+            { extra += " AND H.cell_id = @cellId"; prms.Add(new SqlParameter("@cellId", SafeInt(ddl_cell.SelectedValue))); }
 
             dc.QryDT_P(conn, @"
                 SELECT COUNT(*) AS total_all,
-                    SUM(CASE WHEN H.check_id = 1 THEN 1 ELSE 0 END) AS ok_cnt,
-                    SUM(CASE WHEN H.check_id = 2 THEN 1 ELSE 0 END) AS change_cnt,
-                    SUM(CASE WHEN H.check_id = 3 OR H.check_id IS NULL THEN 1 ELSE 0 END) AS ng_cnt,
-                    SUM(CASE WHEN H.dept_new = @deptOutCnt THEN 1 ELSE 0 END) AS outdept_cnt
+                    ISNULL(SUM(CASE WHEN " + outCond + @" THEN 0 WHEN H.check_id = 1 THEN 1 ELSE 0 END), 0) AS ok_cnt,
+                    ISNULL(SUM(CASE WHEN " + outCond + @" THEN 0 WHEN H.check_id = 2 THEN 1 ELSE 0 END), 0) AS change_cnt,
+                    ISNULL(SUM(CASE WHEN " + outCond + @" THEN 0 WHEN H.check_id = 3 OR H.check_id IS NULL THEN 1 ELSE 0 END), 0) AS ng_cnt,
+                    ISNULL(SUM(CASE WHEN " + outCond + @" THEN 1 ELSE 0 END), 0) AS outdept_cnt
                 FROM Equipment_tana_history H
                 WHERE 1=1" + extra, prms.ToArray());
 
@@ -489,7 +493,7 @@ namespace Tool_Equipment_Control_System
             ViewState["SCAN_KEYWORD"] = scan;
 
             var prms = new List<SqlParameter>();
-            string rsp = BuildPicRspFilter("H", prms);
+            string rsp = BuildTab2ScopeFilter("H", prms);   // ขอบเขตเดียวกับ Tab List All
             string dateFilter = BuildDateFilter("H", prms);
             prms.Add(new SqlParameter("@scan", scan));
             dc.QryDT_P(conn, BuildHistorySql() + rsp + dateFilter + " AND (H.asset_no=@scan OR H.control_no=@scan)", prms.ToArray());
@@ -524,8 +528,8 @@ namespace Tool_Equipment_Control_System
                 }
 
                 string outId = dc.dt.Rows[0]["id"].ToString();
-                Load_detail_by_id_any(outId);   // ← โหลดแบบไม่ติด filter dept
                 txt_scan.Text = "";
+                if (!Load_detail_by_id_any(outId)) return;   // ← โหลดแบบไม่ติด filter dept
                 ScriptManager.RegisterStartupScript(this, GetType(),
                     "openScanOut_" + DateTime.UtcNow.Ticks,
                     "openTanaModal(); focusScanBox();", true);
@@ -535,6 +539,8 @@ namespace Tool_Equipment_Control_System
             // เจอหลายรายการ → filter tab แล้วให้เลือก Check เอง
             if (dc.dt.Rows.Count > 1)
             {
+                // ล้าง status chip ไม่งั้นรายการที่ scan เจออาจถูกกรองหายจาก grid
+                hf_status_filter.Value = "";
                 Load_tab2();
                 txt_scan.Text = "";
                 ShowToast("พบ " + dc.dt.Rows.Count + " รายการ กรุณาเลือกกด Check", "พบหลายรายการ", "info", 4000);
@@ -546,8 +552,8 @@ namespace Tool_Equipment_Control_System
 
             // เจอรายการเดียว → เปิด modal รายละเอียดทันที
             string historyId = dc.dt.Rows[0]["id"].ToString();
-            Load_detail_by_id(historyId);
             txt_scan.Text = "";
+            if (!Load_detail_by_id(historyId)) return;
             ScriptManager.RegisterStartupScript(this, GetType(),
                 "openScan_" + DateTime.UtcNow.Ticks,
                 "openTanaModal(); focusScanBox();", true);
@@ -560,7 +566,8 @@ namespace Tool_Equipment_Control_System
             GridViewRow row = (GridViewRow)btn.NamingContainer;
             string historyId = (row.FindControl("hd_row_id") as HiddenField).Value;
 
-            Load_detail_by_id(historyId);
+            // ไม่ reload tab → grid / status chip เดิมยังอยู่
+            if (!Load_detail_by_id(historyId)) return;
             ScriptManager.RegisterStartupScript(this, GetType(),
                 "openDetail_" + DateTime.UtcNow.Ticks, "openTanaModal();", true);
         }
@@ -699,30 +706,48 @@ namespace Tool_Equipment_Control_System
         }
 
         // ─── โหลดรายละเอียดชิ้นเดียวตาม history.id ─────────────────
-        private void Load_detail_by_id(string historyId)
+        // ใช้ขอบเขตเดียวกับ Tab List All (BuildTab2ScopeFilter) — เดิมใช้แค่ pic_rsp
+        // ทำให้แถว Other Dept / ชิ้นที่ confirm มาจาก dept อื่น กด Check แล้วขึ้น "ไม่พบข้อมูล"
+        // return false = ไม่พบ → ผู้เรียกต้องไม่เปิด modal (กัน modal โชว์ข้อมูลชิ้นเก่า)
+        private bool Load_detail_by_id(string historyId)
         {
             var prms = new List<SqlParameter>();
-            string rsp = BuildPicRspFilter("H", prms);
+            string scope = BuildTab2ScopeFilter("H", prms);
             prms.Add(new SqlParameter("@id", SafeInt(historyId)));
-            dc.QryDT_P(conn, BuildHistorySql() + rsp + " AND H.id=@id", prms.ToArray());
+            dc.QryDT_P(conn, BuildHistorySql() + scope + " AND H.id=@id", prms.ToArray());
 
             if (dc.dt.Rows.Count == 0)
-            { ShowToast("ไม่พบข้อมูล", "Error", "error"); return; }
+            { Clear_detail(); ShowToast("ไม่พบข้อมูล", "Error", "error"); return false; }
 
-            Bind_detail_row(dc.dt.Rows[0], false);
+            DataRow r = dc.dt.Rows[0];
+            Bind_detail_row(r, IsOutOfDept(r));
+            return true;
         }
 
         // โหลดรายละเอียดโดยไม่ติด filter pic_rsp (สำหรับชิ้นที่อยู่นอก dept)
-        private void Load_detail_by_id_any(string historyId)
+        private bool Load_detail_by_id_any(string historyId)
         {
             var prms = new List<SqlParameter>();
             prms.Add(new SqlParameter("@id", SafeInt(historyId)));
             dc.QryDT_P(conn, BuildHistorySql() + " AND H.id=@id", prms.ToArray());
 
             if (dc.dt.Rows.Count == 0)
-            { ShowToast("ไม่พบข้อมูล", "Error", "error"); return; }
+            { Clear_detail(); ShowToast("ไม่พบข้อมูล", "Error", "error"); return false; }
 
             Bind_detail_row(dc.dt.Rows[0], true);   // ← นอก dept
+            return true;
+        }
+
+        // ล้างข้อมูลใน modal ไม่ให้ค้างชิ้นเก่า
+        private void Clear_detail()
+        {
+            hd_history_id.Value = "";
+            hd_tool_id.Value = "";
+            hd_tool_sub.Value = "";
+            hd_sys_status.Value = "";
+            pnl_scan_detail.Visible = false;
+            pnl_change_location.Visible = false;
+            pnl_ng_remark.Visible = false;
         }
 
         private void Bind_detail_row(DataRow r , bool isOutOfDept)
@@ -961,11 +986,14 @@ namespace Tool_Equipment_Control_System
             ShowToast("ล้างผลการตรวจแล้ว สามารถตรวจใหม่ได้", "Clear", "info", 1500);
 
             // โหลด detail ใหม่ (จะเปิด 3 ปุ่มให้เองเพราะ check_id = NULL)
-            Load_detail_by_id(historyId.ToString());
+            bool wasOut = ViewState["OUT_OF_DEPT"] != null && (bool)ViewState["OUT_OF_DEPT"];
+            bool found = Load_detail_by_id(historyId.ToString());
+            if (!found && wasOut) found = Load_detail_by_id_any(historyId.ToString());  // ชิ้นนอก dept (จาก scan)
             Load_tab1();
             Load_tab2();
-            ScriptManager.RegisterStartupScript(this, GetType(),
-                "reopen_" + DateTime.UtcNow.Ticks, "openTanaModal();", true);
+            if (found)
+                ScriptManager.RegisterStartupScript(this, GetType(),
+                    "reopen_" + DateTime.UtcNow.Ticks, "openTanaModal();", true);
         }
 
         // ─── UPDATE : Check OK / Not Found ────────────────────────
@@ -1143,6 +1171,39 @@ namespace Tool_Equipment_Control_System
             string inner = rspFilter.Trim();
             if (inner.StartsWith("AND ")) inner = inner.Substring(4);
             return " AND ( " + inner + " OR " + alias + ".dept_new = @deptNewScope ) ";
+        }
+
+        // เงื่อนไข "Other Dept" : ชิ้นที่ถูก confirm มา dept นี้ (dept_new) แต่เจ้าของเดิม (pic_rsp) ไม่ใช่คนใน dept นี้
+        // (เดิมใช้แค่ dept_new = dept ทำให้ชิ้นของ dept ตัวเองที่ Change Location แล้วเลือก Dept เดิม ถูกนับเป็น Other Dept ด้วย)
+        // คืนค่าเป็น "( ... )" ไว้ใช้ทั้ง WHERE และ CASE WHEN
+        private string BuildOutDeptCond(string alias, List<SqlParameter> prms)
+        {
+            string deptCode = GetDeptCode();
+            if (string.IsNullOrEmpty(deptCode)) return "(1=0)";
+
+            prms.Add(new SqlParameter("@odDept", deptCode));
+            // ISNULL กัน NULL → ใช้กับ "NOT (...)" ได้ถูกต้อง (NOT NULL = UNKNOWN จะทำให้แถวหาย)
+            string cond = "ISNULL(" + alias + ".dept_new,'') = @odDept";
+
+            List<string> ids = GetRspEmpIds();   // คนทั้งหมดของ dept (ไม่ขึ้นกับ ddl_Responsible)
+            if (ids.Count > 0)
+            {
+                var ph = new List<string>();
+                for (int i = 0; i < ids.Count; i++)
+                {
+                    ph.Add("@odRsp" + i);
+                    prms.Add(new SqlParameter("@odRsp" + i, ids[i].Trim()));
+                }
+                cond += " AND ISNULL(" + alias + ".pic_rsp,'') NOT IN (" + string.Join(",", ph) + ")";
+            }
+            return "(" + cond + ")";
+        }
+
+        // ชิ้นนี้เป็นของ dept อื่นหรือไม่ (pic_rsp ไม่อยู่ในรายชื่อ Responsible ของ dept)
+        private bool IsOutOfDept(DataRow r)
+        {
+            string rsp = r["pic_rsp"] == DBNull.Value ? "" : r["pic_rsp"].ToString().Trim();
+            return !GetRspEmpIds().Any(x => string.Equals(x.Trim(), rsp, StringComparison.OrdinalIgnoreCase));
         }
 
         // ═══════════════════════════════════════════════════════════

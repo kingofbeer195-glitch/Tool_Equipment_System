@@ -309,6 +309,9 @@
         document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
         var b = document.getElementById('tab-btn-' + id), p = document.getElementById('tab-panel-' + id);
         if (b) b.classList.add('active'); if (p) p.classList.add('active');
+        // จำ tab ไว้ใน hidden field → หลัง postback กลับมาที่ tab เดิม
+        var hf = document.getElementById('<%=hf_active_tab.ClientID%>');
+        if (hf) hf.value = String(id);
     }
 
     /* ไฮไลต์ chip ที่เลือก (arg: "" | "1" | "2" | "3") */
@@ -332,10 +335,19 @@
         }, 150);
     }
     /* Enter ในช่อง scan = กดปุ่มค้นหา (ไม่ submit ทั้งฟอร์ม) */
+    var _pendingScan = null;   // scan ที่ยิงเข้ามาระหว่างรอ postback ก่อนหน้า
     function scanKey(e) {
         if (e.keyCode === 13) {
             e.preventDefault();
             e.stopPropagation();
+            var prm = Sys.WebForms.PageRequestManager.getInstance();
+            if (prm.get_isInAsyncPostBack()) {
+                // ยังโหลดรอบก่อนไม่เสร็จ → เก็บค่าไว้ก่อน (ไม่งั้น postback ใหม่จะยกเลิกรอบเดิม
+                // และ response จะเขียนทับช่อง scan ทำให้ "scan แล้วไม่มีอะไรเกิดขึ้น")
+                var el = document.getElementById('<%=txt_scan.ClientID%>');
+                _pendingScan = el ? el.value : null;
+                return false;
+            }
             document.getElementById('<%=btn_scan_go.ClientID%>').click();
             return false;
         }
@@ -349,11 +361,69 @@
             row.classList.add('row-scanned');
         });
     }
-    /* ล้าง backdrop ซ้อนหลัง postback */
+    /* ═══ Modal lifecycle กับ UpdatePanel ═══
+       ปัญหาเดิม: modal ถูกย้ายไป <body> (นอก UpdatePanel) ทุกครั้งที่เปิด
+       → ทุก postback UpdatePanel สร้าง modal ชุดใหม่ แต่ชุดเก่ายังค้างใน body
+       → id ซ้ำสะสม + backdrop/modal-open ค้าง + .modal('hide') ไปโดนผิดตัว
+       → Scan ไปหลายรายการแล้วหน้าค้าง / กดแล้วไม่มีอะไรเกิดขึ้น / modal โชว์ชิ้นเก่า
+       แก้: (1) ก่อน postback ย้าย modal กลับเข้า UpdatePanel (ค่าในช่องกรอกจะถูกส่งไป server ด้วย)
+            (2) ตอน response กลับมา ล้าง modal เก่า + backdrop + modal-open ทิ้ง ให้เหลือชุดใหม่ชุดเดียว */
+    var MODAL_IDS = ['modalScan', 'modalConfirm', 'modalListDetail', 'modalImgZoom'];
+    function upPanel() { return document.getElementById('<%=UpdatePanel1.ClientID%>'); }
+
+    function returnModalsToPanel() {
+        var up = upPanel();
+        if (!up) return;
+        MODAL_IDS.forEach(function (id) {
+            $('body > #' + id).each(function () { up.appendChild(this); });
+        });
+    }
+    function resetModalState() {
+        var up = upPanel();
+        MODAL_IDS.forEach(function (id) {
+            $('[id="' + id + '"]').each(function () {
+                if (!up || !up.contains(this)) $(this).remove();   // ชุดที่อยู่นอก UpdatePanel = ชุดเก่า
+            });
+        });
+        $('.modal-backdrop').remove();
+        $('body').removeClass('modal-open').css('padding-right', '');
+    }
+
     $(function () {
-        Sys.WebForms.PageRequestManager.getInstance().add_endRequest(function () {
-            if ($('.modal-backdrop').length > 1) {
-                $('.modal-backdrop').not(':last').remove();
+        var prm = Sys.WebForms.PageRequestManager.getInstance();
+
+        // (1) ครอบ __doPostBack : LinkButton / AutoPostBack ทั้งหมดผ่านตรงนี้
+        var origPostBack = window.__doPostBack;
+        window.__doPostBack = function (t, a) {
+            returnModalsToPanel();
+            return origPostBack(t, a);
+        };
+        prm.add_initializeRequest(function () { returnModalsToPanel(); });
+
+        // (2) response มาถึง ก่อน UpdatePanel ถูกแทนที่ / ก่อน startup script (openTanaModal) ทำงาน
+        prm.add_pageLoading(function () { resetModalState(); });
+
+        prm.add_endRequest(function (sender, args) {
+            if ($('.modal-backdrop').length > 1) $('.modal-backdrop').not(':last').remove();
+
+            // คง tab + status chip เดิมหลัง postback
+            var hfTab = document.getElementById('<%=hf_active_tab.ClientID%>');
+            if (hfTab && hfTab.value) switchTab(hfTab.value);
+            var hfSt = document.getElementById('<%=hf_status_filter.ClientID%>');
+            setActiveChip(hfSt ? hfSt.value : '');
+
+            // error ฝั่ง server → แจ้ง + ไม่ให้หน้าค้าง
+            if (args && args.get_error && args.get_error()) {
+                args.set_errorHandled(true);
+                resetModalState();
+                if (window.showToast) showToast('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง', { title: 'Error', type: 'error', duration: 5000 });
+            }
+
+            // scan ที่ค้างคิวไว้ระหว่างรอ
+            if (_pendingScan) {
+                var v = _pendingScan; _pendingScan = null;
+                var el = document.getElementById('<%=txt_scan.ClientID%>');
+                if (el) { el.value = v; document.getElementById('<%=btn_scan_go.ClientID%>').click(); }
             }
         });
     });
@@ -435,11 +505,11 @@
         });
     });
 
-    $(function () {
-        $('#modalConfirm').on('hidden.bs.modal', function () {
-            $('#modalScan').removeClass('dimmed');
-            lockResultButtons(false);   // ← ปลดล็อกเมื่อปิด confirm
-        });
+    // ใช้ delegated event : modalConfirm ถูกสร้างใหม่ทุก postback
+    // (เดิม bind ตรงกับ element แรก → หลัง postback ไม่ทำงาน ปุ่มผลตรวจถูกล็อกค้าง)
+    $(document).on('hidden.bs.modal', '#modalConfirm', function () {
+        $('#modalScan').removeClass('dimmed');
+        lockResultButtons(false);   // ← ปลดล็อกเมื่อปิด confirm
     });
 
     /* ปุ่มยืนยันใน modal → trigger ปุ่มจริง (postback) */
@@ -458,11 +528,7 @@
         });
     });
 
-    $(function () {
-        $('#modalConfirm').on('hidden.bs.modal', function () {
-            $('#modalScan').removeClass('dimmed');
-        });
-    });
+
 
     /* ═══ Select2 ใน Change panel ═══ */
     function initChangeSelect2() {
@@ -671,6 +737,7 @@
                          
 
             <asp:HiddenField runat="server" ID="hf_status_filter" Value="" />
+            <asp:HiddenField runat="server" ID="hf_active_tab" Value="1" />
 
             <div class="tabs">
                 <button id="tab-btn-1" type="button" class="tab active" onclick="switchTab(1);return false;">

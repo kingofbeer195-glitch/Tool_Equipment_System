@@ -198,7 +198,8 @@ namespace Tool_Equipment_Control_System
                 "            OR ( V.status_id IN (28, 31) " +
                 "                 AND EXISTS (SELECT 1 FROM NotificationofChange_Control_List G " +
                 "                             JOIN NotificationofChange_Approver A " +
-                "                               ON A.Doc_No = G.Doc_No AND A.status_id = G.status_id " +
+                "                               ON A.Doc_No = G.Doc_No " +
+                "                              AND ( A.status_id = G.status_id OR (G.status_id = 31 AND A.status_id = 30) ) " +
                 "                             WHERE G.Doc_No = V.Doc_No AND G.change_type = 'gauge' " +
                 "                               AND LTRIM(RTRIM(A.emp_id)) = @emp_id) ) ) ) ";
 
@@ -244,7 +245,8 @@ namespace Tool_Equipment_Control_System
                 "            OR ( V.status_id IN (28, 31) " +
                 "                 AND EXISTS (SELECT 1 FROM NotificationofChange_Control_List G " +
                 "                             JOIN NotificationofChange_Approver A " +
-                "                               ON A.Doc_No = G.Doc_No AND A.status_id = G.status_id " +
+                "                               ON A.Doc_No = G.Doc_No " +
+                "                              AND ( A.status_id = G.status_id OR (G.status_id = 31 AND A.status_id = 30) ) " +
                 "                             WHERE G.Doc_No = V.Doc_No AND G.change_type = 'gauge' " +
                 "                               AND LTRIM(RTRIM(A.emp_id)) = @emp_id) ) ) ";
 

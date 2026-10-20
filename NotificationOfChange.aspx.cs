@@ -2845,7 +2845,7 @@ namespace Tool_Equipment_Control_System
             {
                 HighlightUseDeptMismatch(refUseDept);
                 alert_toast(
-                    "Use : Dept ทุกรายการต้องเป็นกลุ่ม Dept เดียวกัน\n[อ้างอิงรายการแรก: " + refUseDept + "]",
+                    "ย้ายไปที่ : Dept ทุกรายการต้องเป็นกลุ่ม Dept เดียวกัน\n[อ้างอิงรายการแรก: " + refUseDept + "]",
                     "Use Dept ไม่ตรงกัน", "warn", "10000");
             }
         }
@@ -5846,7 +5846,7 @@ namespace Tool_Equipment_Control_System
         {
             if (hfFlowGenerated.Value != "1")
             {
-                alert_toast("กรุณาเพิ่มรายการและเลือก ใช้งานที่ : Dept ให้ครบ แล้วเลือกผู้อนุมัติใน Step 6",
+                alert_toast("กรุณาเพิ่มรายการและเลือก ย้ายไปที่ : Dept ให้ครบ แล้วเลือกผู้อนุมัติใน Step 6",
                             "ยังไม่ได้เลือกผู้อนุมัติ", "warn", "10000");          // ✅ R41
                 ScrollToApprover();
                 return false;
@@ -6502,7 +6502,7 @@ namespace Tool_Equipment_Control_System
             {
                 HighlightUseDeptMismatch(refUseDept);
                 alert_toast(
-                    "Use : Dept ทุกรายการต้องเป็นกลุ่ม Dept เดียวกัน\n[อ้างอิงรายการแรก: " + refUseDept + "]",
+                    "ย้ายไปที่ : Dept ทุกรายการต้องเป็นกลุ่ม Dept เดียวกัน\n[อ้างอิงรายการแรก: " + refUseDept + "]",
                     "Use Dept ไม่ตรงกัน", "warn", "10000");
                 return false;
             }

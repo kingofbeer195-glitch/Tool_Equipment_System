@@ -713,6 +713,64 @@
         }
     </script>
 
+    <%-- ตารางรายการเปลี่ยนแปลง : รูปแบบเดียวกับ withdraw2 (Fix คอลัมน์แนว X + เส้นขอบดำ + แบ่งโซน) --%>
+    <style>
+        /* Fix คอลัมน์ ( # , Fix Asset , Control No , Tool No / Model , No ) — ค่า left คำนวณด้วย JS (fixStickyColumns)
+           ลบ / ผลอนุมัติ / รายละเอียด / รูป ไม่ Fix → เลื่อนลอดใต้คอลัมน์ที่ Fix */
+        table.fx-table { border-collapse: separate !important; border-spacing: 0; }
+        table.fx-table td.fx-col { position: sticky; z-index: 2; background-color: #ffffff; }
+        table.fx-table th.fx-col { position: sticky; top: 0; z-index: 6; }
+        /* เส้นขอบสีดำ 1px — ระหว่างรายการ = เส้นประ / แบ่งโซน = เส้นทึบ 4px */
+        .step3-wrap { border: 1px solid #000 !important; }
+        table.fx-table { border: 0 !important; }
+        table.fx-table th, table.fx-table td {
+            border-top: 0 !important; border-left: 0 !important;
+            border-right: 1px solid #000 !important;
+        }
+        table.fx-table th { border-bottom: 1px solid #000 !important; }
+        table.fx-table td { border-bottom: 1px dashed #000 !important; }
+        table.fx-table tr > :last-child { border-right: 0 !important; }
+        table.fx-table tr:last-child > td { border-bottom: 0 !important; }
+        table.fx-table .zone-end { border-right: 4px solid #1a3a5c !important; }
+        table.fx-table .zone-divider { border-left: 0 !important; }
+        table.fx-table td.fx-toolno { max-width: 220px; white-space: normal; word-break: break-word; }
+        table.fx-table th.hdr-current { background: #4a5b6d !important; color: #fff !important; }
+        table.fx-table th.hdr-use { background: #16884a !important; color: #fff !important; }
+    </style>
+    <script>
+        function fixStickyColumns() {
+            var tables = document.querySelectorAll('table.fx-table');
+            for (var t = 0; t < tables.length; t++) {
+                var tbl = tables[t];
+                if (!tbl.rows.length) continue;
+                var head = tbl.rows[0], n = head.cells.length, left = 0;
+                for (var i = 0; i < n; i++) {
+                    var hc = head.cells[i];
+                    if (!/(^|\s)fx-col(\s|$)/.test(hc.className)) continue;
+                    for (var r = 0; r < tbl.rows.length; r++) {
+                        var row = tbl.rows[r];
+                        if (row.cells.length !== n) continue;            // แถวว่าง / colspan
+                        row.cells[i].style.left = left + 'px';
+                    }
+                    left += hc.getBoundingClientRect().width;
+                }
+            }
+        }
+        (function () {
+            function run() { setTimeout(fixStickyColumns, 0); }
+            var hooked = false;
+            function hookAjax() {
+                if (hooked || !(window.Sys && Sys.WebForms && Sys.WebForms.PageRequestManager)) return;
+                Sys.WebForms.PageRequestManager.getInstance().add_endRequest(run);
+                hooked = true;
+            }
+            function init() { hookAjax(); run(); }
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+            window.addEventListener('load', init);
+            window.addEventListener('resize', run);
+        })();
+    </script>
+
     <%-- Modal / Mode switch / Reject --%>
     <script>
         function scrollBackToRow(rowIndex) {
@@ -2148,7 +2206,7 @@
                         </div>
                         <span class="head-right">
                             <asp:Literal ID="request_remark" runat="server"
-                                Text="<span class='bw-hint'>ถ้า ใช้งานที่ : Dept ไม่ใช่ส่วนงาน EPM ให้เลือก AAD (5505)</span>" />
+                                Text="<span class='bw-hint'>ถ้า ย้ายไปที่ : Dept ไม่ใช่ส่วนงาน EPM ให้เลือก AAD (5505)</span>" />
                         </span>
                     </div>
 
@@ -2160,9 +2218,9 @@
                         <asp:Literal ID="litItemResultSummary" runat="server" />
 
                         <%-- ลำดับคอลัมน์เดิม (Columns[1] = Remove , Cells[0] = ป้ายคู่สลับ) --%>
-                        <div class="tbl-wrap" style="max-height: 360px;">
+                        <div class="tbl-wrap step3-wrap" style="max-height: 360px;">
                             <asp:GridView ID="gvChangeList" runat="server"
-                                CssClass="data-table change-table fixed-header" GridLines="None" CellSpacing="0"
+                                CssClass="data-table change-table fixed-header fx-table" GridLines="None" CellSpacing="0"
                                 style="min-width:2000px;"
                                 AutoGenerateColumns="false"
                                 OnRowDataBound="gvChangeList_RowDataBound"
@@ -2171,7 +2229,7 @@
                                 <EmptyDataRowStyle CssClass="no-data" />
                                 <Columns>
                                     <asp:BoundField DataField="RowNo" HeaderText="#"
-                                        HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" ItemStyle-Width="65px" />
+                                        HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv1 fx-col" ItemStyle-Width="65px" />
 
                                     <asp:TemplateField HeaderText="ลบ" ItemStyle-Width="80px"
                                         HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1">
@@ -2213,16 +2271,30 @@
                                     </asp:TemplateField>
 
                                     <asp:BoundField DataField="FixAssetNo" ItemStyle-Width="110px"
-                                        HeaderText="Fix Asset" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
+                                        HeaderText="Fix Asset" HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv1 fx-col" />
                                     <asp:BoundField DataField="ControlNo" ItemStyle-Width="120px"
-                                        HeaderText="Control No" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
+                                        HeaderText="Control No" HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv1 fx-col" />
                                     <asp:BoundField DataField="ToolNo"
-                                        HeaderText="Tool No / Model" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv_toolNo" />
+                                        HeaderText="Tool No / Model" HeaderStyle-CssClass="headerGv1 fx-col" ItemStyle-CssClass="rowGv_toolNo fx-col fx-toolno" />
                                     <asp:BoundField DataField="ToolSub" ItemStyle-Width="45px"
-                                        HeaderText="No" HeaderStyle-CssClass="headerGv1" ItemStyle-CssClass="rowGv1" />
+                                        HeaderText="No" HeaderStyle-CssClass="headerGv1 fx-col fx-last zone-end" ItemStyle-CssClass="rowGv1 fx-col fx-last zone-end" />
 
-                                    <%--═══ ปลายทาง (USE) ═══--%>
-                                    <asp:TemplateField HeaderText="ใช้งานที่ : Dept"
+                                    <%--═══ ปัจจุบัน (CURRENT) ═══--%>
+                                    <asp:TemplateField HeaderText="ปัจจุบัน : Dept" ItemStyle-Width="110px"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current">
+                                        <ItemTemplate>
+                                            <%# FormatDeptDisplay(Eval("DeptCode"), Eval("DeptCodeReal")) %>
+                                        </ItemTemplate>
+                                    </asp:TemplateField>
+                                    <asp:BoundField DataField="ModelName" ItemStyle-Width="120px" HeaderText="ปัจจุบัน : Model"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="CellName" ItemStyle-Width="120px" HeaderText="ปัจจุบัน : Cell"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+                                    <asp:BoundField DataField="StationName" ItemStyle-Width="120px" HeaderText="ปัจจุบัน : Station"
+                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
+
+                                    <%--═══ ย้ายไปที่ (USE) ═══--%>
+                                    <asp:TemplateField HeaderText="ย้ายไปที่ : Dept"
                                         HeaderStyle-CssClass="hdr-use zone-divider" ItemStyle-CssClass="col-use zone-divider">
                                         <ItemTemplate>
                                             <div class="d-flex align-items-center" style="min-width:180px;">
@@ -2234,7 +2306,7 @@
                                         </ItemTemplate>
                                     </asp:TemplateField>
 
-                                    <asp:TemplateField HeaderText="ใช้งานที่ : Model" HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use">
+                                    <asp:TemplateField HeaderText="ย้ายไปที่ : Model" HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use">
                                         <ItemTemplate>
                                             <div class="d-flex align-items-center" style="min-width:200px;">
                                                 <asp:HiddenField ID="hfModelMode" runat="server" Value="ddl" />
@@ -2249,7 +2321,7 @@
                                         </ItemTemplate>
                                     </asp:TemplateField>
 
-                                    <asp:TemplateField HeaderText="ใช้งานที่ : Cell" HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use">
+                                    <asp:TemplateField HeaderText="ย้ายไปที่ : Cell" HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use">
                                         <ItemTemplate>
                                             <div class="d-flex align-items-center" style="min-width:200px;">
                                                 <asp:HiddenField ID="hfCellMode" runat="server" Value="ddl" />
@@ -2264,7 +2336,7 @@
                                         </ItemTemplate>
                                     </asp:TemplateField>
 
-                                    <asp:TemplateField HeaderText="ใช้งานที่ : Station" HeaderStyle-CssClass="hdr-use" ItemStyle-CssClass="col-use">
+                                    <asp:TemplateField HeaderText="ย้ายไปที่ : Station" HeaderStyle-CssClass="hdr-use zone-end" ItemStyle-CssClass="col-use zone-end">
                                         <ItemTemplate>
                                             <div class="d-flex align-items-center" style="min-width:210px;">
                                                 <asp:HiddenField ID="hfStationMode" runat="server" Value="ddl" />
@@ -2278,20 +2350,6 @@
                                             </div>
                                         </ItemTemplate>
                                     </asp:TemplateField>
-
-                                    <%--═══ ปัจจุบัน (CURRENT) ═══--%>
-                                    <asp:TemplateField HeaderText="ปัจจุบัน : Dept" ItemStyle-Width="110px"
-                                        HeaderStyle-CssClass="hdr-current zone-divider" ItemStyle-CssClass="col-current zone-divider">
-                                        <ItemTemplate>
-                                            <%# FormatDeptDisplay(Eval("DeptCode"), Eval("DeptCodeReal")) %>
-                                        </ItemTemplate>
-                                    </asp:TemplateField>
-                                    <asp:BoundField DataField="ModelName" ItemStyle-Width="120px" HeaderText="ปัจจุบัน : Model"
-                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
-                                    <asp:BoundField DataField="CellName" ItemStyle-Width="120px" HeaderText="ปัจจุบัน : Cell"
-                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
-                                    <asp:BoundField DataField="StationName" ItemStyle-Width="120px" HeaderText="ปัจจุบัน : Station"
-                                        HeaderStyle-CssClass="hdr-current" ItemStyle-CssClass="col-current" />
                                 </Columns>
                             </asp:GridView>
                         </div>
@@ -2380,7 +2438,7 @@
 
                         <asp:Panel ID="pnlFlowNeedGen" runat="server" Visible="true">
                             <div class="apvflow-needgen">
-                                เพิ่มอุปกรณ์ในขั้นตอนที่ 4 และเลือก <b>ใช้งานที่ : Dept</b> ให้ครบทุกรายการ
+                                เพิ่มอุปกรณ์ในขั้นตอนที่ 4 และเลือก <b>ย้ายไปที่ : Dept</b> ให้ครบทุกรายการ
                                 แล้วระบบจะแสดงช่องเลือกผู้อนุมัติที่นี่
                             </div>
                         </asp:Panel>
@@ -3066,7 +3124,7 @@
                                 <span class="step-no">4</span>
                                 <div class="rm-step-text">
                                     <b>รายการเปลี่ยนแปลง</b>
-                                    <p>ระบุปลายทางในช่องสีเขียว (<i>ใช้งานที่ : Dept / Model / Cell / Station</i>)
+                                    <p>ระบุปลายทางในช่องสีเขียว (<i>ย้ายไปที่ : Dept / Model / Cell / Station</i>)
                                        ถ้าไม่มีค่าในรายการ กด <span class="rm-kbd">+</span> เพื่อพิมพ์ค่าใหม่
                                        — ถ้า Dept ปลายทางไม่ใช่ส่วนงาน EPM ให้เลือก <b>AAD (5505)</b></p>
                                 </div>
@@ -3084,7 +3142,7 @@
                                 <span class="step-no">6</span>
                                 <div class="rm-step-text">
                                     <b>ผู้อนุมัติ (J3 Up)</b>
-                                    <p>ระบบกำหนดแผนกผู้อนุมัติให้อัตโนมัติเมื่อเลือก <i>ใช้งานที่ : Dept</i> ครบทุกรายการ
+                                    <p>ระบบกำหนดแผนกผู้อนุมัติให้อัตโนมัติเมื่อเลือก <i>ย้ายไปที่ : Dept</i> ครบทุกรายการ
                                        — เลือกผู้อนุมัติอย่างน้อย 1 คนต่อแผนก (คนใดคนหนึ่งอนุมัติได้)</p>
                                 </div>
                                 <a href="#" class="manual-btn" onclick="return openManualStep(6);" title="คู่มือ Step 6"><span class="glyphicon glyphicon-book"></span></a>
@@ -3113,7 +3171,7 @@
                                         <li>ย้ายสถานที่ใช้งานของอุปกรณ์</li>
                                         <li>ไม่จำกัดจำนวนรายการ</li>
                                         <li><b>ปัจจุบัน : Dept</b> ทุกรายการต้องเป็นกลุ่มเดียวกัน</li>
-                                        <li><b>ใช้งานที่ : Dept</b> ทุกรายการต้องเป็นกลุ่มเดียวกัน</li>
+                                        <li><b>ย้ายไปที่ : Dept</b> ทุกรายการต้องเป็นกลุ่มเดียวกัน</li>
                                         <li>ระบุปลายทางเองทุกช่อง</li>
                                     </ul>
                                 </div>

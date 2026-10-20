@@ -638,7 +638,7 @@
             var s = apvState();
 
             // ✅ 7E-2 : ต้องใส่เหตุผล = A1 ไม่อนุมัติบางรายการ หรือ A2 เลือกไม่ตรงกับ A1
-            var needCmt = s.mismatch || (window.apvStep !== 2 && s.checked < s.total);
+            var needCmt = !window.apvAllItems && (s.mismatch || (window.apvStep !== 2 && s.checked < s.total));
             var req = document.getElementById('apvCommentReq');
             if (req) req.style.display = needCmt ? 'inline' : 'none';
 
@@ -648,12 +648,14 @@
             var btn = document.getElementById('<%= btnApvConfirm.ClientID %>');
             if (btn) {
                 btn.className = 'ab-btn ' + (s.mismatch ? 'ab-reject' : 'ab-send');
-                btn.textContent = s.mismatch ? 'Reject กลับไปยังผู้ร้องขอ' : 'ยืนยันอนุมัติ';
+                btn.textContent = s.mismatch ? 'Reject กลับไปยังผู้ร้องขอ' : (window.apvConfirmText || 'ยืนยันอนุมัติ');
             }
             return s;
         }
 
         function apvValidate() {
+            // แจ้งเปลี่ยนเครื่องมือวัด : ยืนยันทุกรายการ (ไม่มี checkbox / เหตุผล)
+            if (window.apvAllItems) { showLoading(); return true; }
             var s = apvUpdateCommentReq();
             var cmt = document.getElementById('<%= txtApvComment.ClientID %>').value.trim();
 
@@ -2794,7 +2796,7 @@
                                 </asp:GridView>
                             </div>
 
-                            <div class="bw-field">
+                            <div class="bw-field" id="apvCommentWrap">
                                 <label for="<%= txtApvComment.ClientID %>">
                                     เหตุผล (กรณีไม่อนุมัติบางรายการ)
                                     <span id="apvCommentReq" style="color:#c93b3b; display:none;"> * จำเป็น</span>

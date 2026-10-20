@@ -172,7 +172,7 @@ namespace Tool_Equipment_Control_System
 
             // 1.2.2 Approver (ทุกคน รวมถึง Admin ที่มีสิทธิ Approve ด้วย)
             //   AAD2 : status 30 = ขั้น A1 (approve_step 1), status 31 = ขั้น A2 (approve_step 2)
-            //          แจ้งเปลี่ยนเครื่องมือวัด (change_type = gauge) : 28 = QC Check , 30 = J3 Up
+            //          แจ้งเปลี่ยนเครื่องมือวัด (change_type = gauge) : 28 = QC Check , 31 = Approve 2 (J3 Up)
             //          → ผู้มีสิทธิ์ = มีชื่อใน NotificationofChange_Approver ที่ status_id ตรงกับสถานะเอกสาร
             conds.Add(
                 " V.document_id = 'AAD2' AND ( " +
@@ -184,7 +184,7 @@ namespace Tool_Equipment_Control_System
                 "                    AND N.emp_id = '" + empSafe + "' " +
                 "                    AND ( (V.status_id = 30 AND N.approve_step = 1) " +
                 "                       OR (V.status_id = 31 AND N.approve_step = 2) ) ) ) " +
-                "   OR ( V.status_id IN (28, 30) " +
+                "   OR ( V.status_id IN (28, 31) " +
                 "     AND EXISTS ( SELECT 1 FROM NotificationofChange_Control_List G " +
                 "                  JOIN NotificationofChange_Approver A " +
                 "                    ON A.Doc_No = G.Doc_No AND A.status_id = G.status_id " +
@@ -906,7 +906,7 @@ namespace Tool_Equipment_Control_System
             dc.QryDT(conn, "SELECT dept_code_approve2, change_type FROM NotificationofChange_Control_List " +
                            "WHERE Doc_No = '" + Doc_No.Replace("'", "''") + "'");
             bool hasApprove2 = dc.dt.Rows.Count > 0 && HasValue(dc.dt.Rows[0]["dept_code_approve2"]);
-            // แจ้งเปลี่ยนเครื่องมือวัด : 28 QC Check (ผู้อนุมัติขั้น 1) → 30 J3 Up (ผู้อนุมัติขั้น 2)
+            // แจ้งเปลี่ยนเครื่องมือวัด : 28 QC Check (ผู้อนุมัติขั้น 1) → 31 Approve 2 (ผู้อนุมัติขั้น 2)
             bool isGauge = dc.dt.Rows.Count > 0 && SafeStr(dc.dt.Rows[0]["change_type"]).Trim() == "gauge";
 
             lblHistDocNo.Text = Doc_No;
@@ -926,7 +926,7 @@ namespace Tool_Equipment_Control_System
             {
                 int sid = Convert.ToInt32(s["status_id"]);
                 if (sid <= 1 || sid == 999) continue;
-                if (isGauge && sid == 31) continue;                    // gauge : ไม่มีขั้น 31
+                if (isGauge && sid == 30) continue;                    // gauge : ไม่มีขั้น 30 (28 → 31)
                 if (!isGauge && sid == 28) continue;                   // โหมดปกติ : ไม่มี QC Check
                 if (!isGauge && sid == 31 && !hasApprove2) continue;   // ✅ ไม่มี Approver 2 → แสดงแค่ 30
 
@@ -936,7 +936,6 @@ namespace Tool_Equipment_Control_System
                 // gauge : ผู้อนุมัติขั้น 1 (QC) เก็บที่ process30 , ขั้น 2 (J3) เก็บที่ process31
                 int colSid = sid;
                 if (isGauge && sid == 28) colSid = 30;
-                else if (isGauge && sid == 30) colSid = 31;
 
                 string[] cols;
                 if (StageColumns.TryGetValue(colSid, out cols))

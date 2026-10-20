@@ -605,7 +605,7 @@ namespace Tool_Equipment_Control_System
                 r["issue_empid"], r["send_date"],
                 true, "ส่งคำร้องขอ");
 
-            // แจ้งเปลี่ยนเครื่องมือวัด (change_type = gauge) : 28 QC Check → 30 J3 Up
+            // แจ้งเปลี่ยนเครื่องมือวัด (change_type = gauge) : 28 QC Check → 31 Approve 2 (J3 Up)
             dc.QryDT(conn, "SELECT change_type FROM NotificationofChange_Control_List " +
                            "WHERE Doc_No = '" + Doc_No.Replace("'", "''") + "'");
             bool isGauge = dc.dt.Rows.Count > 0 && dc.dt.Rows[0]["change_type"] != DBNull.Value
@@ -617,7 +617,7 @@ namespace Tool_Equipment_Control_System
                 AppendStage(sb, "QC Check",
                     HasCol(r, "process30_empid") ? r["process30_empid"] : DBNull.Value, GetCol(r, "process30_date", "process30_date"),
                     HasValue(GetCol(r, "process30_date", "process30_date")), "QC ยืนยันการเปลี่ยนเครื่องมือวัด");
-                AppendStage(sb, "J3 Up Approve",
+                AppendStage(sb, "Approve 2 (J3 Up)",
                     HasCol(r, "process31_empid") ? r["process31_empid"] : DBNull.Value, GetCol(r, "process31_date", "process31_date"),
                     HasValue(GetCol(r, "process31_date", "process31_date")), "อนุมัติการร้องขอ");
             }

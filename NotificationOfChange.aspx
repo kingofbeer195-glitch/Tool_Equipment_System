@@ -411,7 +411,10 @@
             // ✅ แสดงกล่อง Approver 2 ตามค่า A2 (กันถูกซ่อนหลัง async postback)
             var a2 = document.getElementById('<%= hfFlowDeptA2.ClientID %>');
             var boxR = document.getElementById('j3BoxR');
-            if (boxR) boxR.style.display = (a2 && a2.value) ? 'block' : 'none';
+            // แจ้งเปลี่ยนเครื่องมือวัด (gauge) : มี 2 ส่วนเสมอ (QC + J3 Up)
+            var cm = document.getElementById('<%= hfChangeMode.ClientID %>');
+            var isGauge = cm && cm.value === 'gauge';
+            if (boxR) boxR.style.display = (isGauge || (a2 && a2.value)) ? 'block' : 'none';
 
             ['L', 'R'].forEach(function (side) {
                 var srcEl = j3Source(side), selEl = j3Hidden(side);
@@ -2385,7 +2388,7 @@
                                     <div class="j3-card-head">
                                         <span class="j3-step">1</span>
                                         <div class="j3-card-title">
-                                            <div class="j3-title">Approver 1 <small>อนุมัติลำดับแรก</small></div>
+                                            <div class="j3-title"><asp:Literal ID="litJ3TitleL" runat="server" Text="Approver 1" /></div>
                                             <div class="j3-sub">แผนก <b><asp:Literal ID="litDeptL" runat="server" Text="-" /></b></div>
                                         </div>
                                         <span id="j3CountL" class="j3-count req">ต้องเลือกอย่างน้อย 1 คน</span>
@@ -2412,7 +2415,7 @@
                                     <div class="j3-card-head">
                                         <span class="j3-step">2</span>
                                         <div class="j3-card-title">
-                                            <div class="j3-title">Approver 2 <small>อนุมัติต่อจาก Approver 1</small></div>
+                                            <div class="j3-title"><asp:Literal ID="litJ3TitleR" runat="server" Text="Approver 2" /></div>
                                             <div class="j3-sub">แผนก <b><asp:Literal ID="litDeptR" runat="server" Text="-" /></b></div>
                                         </div>
                                         <span id="j3CountR" class="j3-count req">ต้องเลือกอย่างน้อย 1 คน</span>

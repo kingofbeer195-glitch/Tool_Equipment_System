@@ -236,6 +236,41 @@ namespace Tool_Equipment_Control_System
         private bool IsMeasureMode() { return hfChangeMode.Value == MODE_MEASURE; }
         private string PairModeLabel() { return IsMeasureMode() ? "แจ้งเปลี่ยนเครื่องมือวัด" : "แจ้งสลับ"; }
 
+        // ── สถานะของแต่ละขั้น Approve ──────────────────────────
+        //  ปกติ (change / swap)        : ขั้น 1 = 30 (J3 Up Approve 1) , ขั้น 2 = 31 (J3 Up Approve 2)
+        //  แจ้งเปลี่ยนเครื่องมือวัด (gauge) : ขั้น 1 = 28 (QC Check)        , ขั้น 2 = 30 (J3 Up)
+        //                                   gauge มี 2 ขั้นเสมอ (ไม่ขึ้นกับจำนวน Dept)
+        private const string STATUS_QC_CHECK = "28";
+        private const string STATUS_J3_APPROVE = "30";
+
+        private string ApvStatus(int step)
+        {
+            if (IsMeasureMode()) return step == 1 ? STATUS_QC_CHECK : STATUS_J3_APPROVE;
+            return step == 1 ? "30" : "31";
+        }
+        private int ApvStatusInt(int step) { return Convert.ToInt32(ApvStatus(step)); }
+
+        // status เอกสาร → ขั้น Approve (0 = ไม่ใช่ขั้น Approve)
+        private int ApvStepOfStatus(string status_id)
+        {
+            string s = (status_id ?? "").Trim();
+            if (s == ApvStatus(1)) return 1;
+            if (s == ApvStatus(2)) return 2;
+            return 0;
+        }
+
+        // status ที่ใช้ตอน Send Request (ส่งเข้าขั้น Approve แรก)
+        private static bool IsSendStatus(string status_id)
+        {
+            return status_id == "30" || status_id == STATUS_QC_CHECK;
+        }
+
+        private string ApvStepLabel(int step)
+        {
+            if (IsMeasureMode()) return step == 1 ? "QC Check" : "J3 Up Approve";
+            return step == 1 ? "Approver 1" : "Approver 2";
+        }
+
         private string PageMode
         {
             get
@@ -578,7 +613,7 @@ namespace Tool_Equipment_Control_System
             {
                 string id = GetVal(r, "emp_id");
                 string st = GetVal(r, "status_id");
-                if (st == "31") selR.Add(id); else selL.Add(id);
+                if (st == ApvStatus(2)) selR.Add(id); else selL.Add(id);   // gauge : 28 = QC (ซ้าย) , 30 = J3 (ขวา)
             }
             hfJ3SelectedL.Value = string.Join(",", selL.ToArray());
             hfJ3SelectedR.Value = string.Join(",", selR.ToArray());
@@ -826,8 +861,8 @@ namespace Tool_Equipment_Control_System
         /// <summary>Approve ขั้นที่ 1 (status 30) — a1_selected + reject/ปลด reject → 31 หรือ 50</summary>
         private void DoApprove1(string Doc_No, string empId, HashSet<string> selectedKeys, string comment)
         {
-            bool twoDept = HasSecondDept(Doc_No);
-            int nextStatus = twoDept ? 31 : 50;
+            bool twoDept = HasSecondDept(Doc_No);                 // gauge = true เสมอ (QC → J3)
+            int nextStatus = twoDept ? ApvStatusInt(2) : 50;
             int unselCount = 0;
 
             conn.Open();
@@ -861,7 +896,7 @@ namespace Tool_Equipment_Control_System
                 UpdateHeaderStatus(tx, Doc_No, nextStatus, empId, 1);
 
                 if (unselCount > 0 && !string.IsNullOrEmpty(comment))
-                    InsertApproveHistory(tx, Doc_No, "30", "[Approver 1] " + comment, "Reject");
+                    InsertApproveHistory(tx, Doc_No, ApvStatus(1), "[" + ApvStepLabel(1) + "] " + comment, "Reject");
 
                 tx.Commit();
             }
@@ -889,7 +924,7 @@ namespace Tool_Equipment_Control_System
                     string extra = partial
                         ? BuildReasonHtml(comment) + BuildItemMailTable(GetItemResultTable(Doc_No), true)
                         : null;
-                    SendApproverMail(Doc_No, "31", null, null, null, extra, cc);
+                    SendApproverMail(Doc_No, ApvStatus(2), null, null, null, extra, cc);
                 }
                 catch (Exception exMail) { System.Diagnostics.Debug.WriteLine("[Mail A2] " + exMail.Message); }
 
@@ -909,7 +944,7 @@ namespace Tool_Equipment_Control_System
 
             // ✅ 7D : Toast + กลับหน้า Approve Status (ตกหล่นจากรอบแก้อีเมล)
             string msg = twoDept
-                ? (partial ? "อนุมัติบางรายการ — ส่งต่อ Approver 2 แล้ว" : "อนุมัติแล้ว — ส่งต่อ Approver 2 แล้ว")
+                ? (partial ? "อนุมัติบางรายการ — ส่งต่อ " + ApvStepLabel(2) + " แล้ว" : "อนุมัติแล้ว — ส่งต่อ " + ApvStepLabel(2) + " แล้ว")
                 : (partial ? "อนุมัติบางรายการ — รอ AAD Confirm" : "อนุมัติสมบูรณ์ — รอ AAD Confirm");
 
             RedirectAfterApprove(Doc_No, msg, partial ? "warn" : "success");
@@ -961,7 +996,7 @@ namespace Tool_Equipment_Control_System
                     }
 
                     if (!string.IsNullOrEmpty(comment))
-                        InsertApproveHistory(tx, Doc_No, "31", "[Approver 2] " + comment, "Reject");
+                        InsertApproveHistory(tx, Doc_No, ApvStatus(2), "[" + ApvStepLabel(2) + "] " + comment, "Reject");
                 }
                 else
                 {
@@ -978,7 +1013,7 @@ namespace Tool_Equipment_Control_System
                     ResetApprover(tx, Doc_No, 1);
                     ResetApprover(tx, Doc_No, 2);
                     UpdateHeaderStatus(tx, Doc_No, 1, empId, 0);
-                    InsertApproveHistory(tx, Doc_No, "31", BuildReturnDetail(diffs, comment), "Reject");
+                    InsertApproveHistory(tx, Doc_No, ApvStatus(2), BuildReturnDetail(diffs, comment), "Reject");
                     returned = true;
                 }
 
@@ -1284,6 +1319,11 @@ namespace Tool_Equipment_Control_System
             step = 0; docStatus = 0; flag = "";
             if (string.IsNullOrEmpty(empId)) return false;
 
+            // gauge : ขั้น 1 = 28 (QC) / ขั้น 2 = 30 (J3) — อ่านจากตาราง Approver ตรง ๆ
+            //         (View_NotiChange_ApproverCheck คำนวณ approve_step จาก 30/31 ของโหมดปกติ)
+            if (IsMeasureMode())
+                return CheckApproverRightGauge(Doc_No, empId, out step, out docStatus, out flag);
+
             string sql =
                 "SELECT approve_step, doc_status, approve_flag FROM View_NotiChange_ApproverCheck" +
                 " WHERE Doc_No=@doc AND emp_id=@emp";
@@ -1308,6 +1348,30 @@ namespace Tool_Equipment_Control_System
             if (step == 1 && docStatus == 30) return true;
             if (step == 2 && docStatus == 31) return true;
             return false;
+        }
+
+        // ── gauge : สิทธิ์ Approve = มีชื่อใน NotificationofChange_Approver ที่ status_id ตรงกับสถานะเอกสาร (28 / 30) ──
+        private bool CheckApproverRightGauge(string Doc_No, string empId, out int step, out int docStatus, out string flag)
+        {
+            step = 0; docStatus = 0; flag = "";
+
+            dc.QryDT_P(conn,
+                "SELECT C.status_id AS doc_status, C.issue_empid, A.approve_flag" +
+                " FROM NotificationofChange_Control_List C" +
+                " JOIN NotificationofChange_Approver A ON A.Doc_No = C.Doc_No AND A.status_id = C.status_id" +
+                " WHERE C.Doc_No=@doc AND LTRIM(RTRIM(A.emp_id))=@emp",
+                new SqlParameter("@doc", SqlDbType.NVarChar) { Value = Doc_No },
+                new SqlParameter("@emp", SqlDbType.NVarChar) { Value = empId.Trim() });
+
+            if (dc.dt.Rows.Count == 0) return false;
+
+            DataRow r = dc.dt.Rows[0];
+            if (GetVal(r, "issue_empid") == empId.Trim()) return false;   // ✅ Requester อนุมัติเอกสารตัวเองไม่ได้
+
+            docStatus = r["doc_status"] == DBNull.Value ? 0 : Convert.ToInt32(r["doc_status"]);
+            flag = GetVal(r, "approve_flag");
+            step = ApvStepOfStatus(docStatus.ToString());
+            return step > 0;
         }
 
         /// <summary>สร้างตารางรายการใน Approve Modal พร้อม default checkbox ตามขั้น A1/A2</summary>
@@ -2004,16 +2068,17 @@ namespace Tool_Equipment_Control_System
             }
 
             // ── บันทึก header + list (status 30) ──
-            string Doc_No = saveData_ReturnDoc("30");
+            // ✅ ขั้นแรก : ปกติ = 30 / แจ้งเปลี่ยนเครื่องมือวัด = 28 (QC Check)
+            string Doc_No = saveData_ReturnDoc(ApvStatus(1));
             if (string.IsNullOrEmpty(Doc_No)) return;
 
-            // ── บันทึก approver (A1 = 30 , A2 = 31) ──
+            // ── บันทึก approver (ปกติ A1 = 30 , A2 = 31 / gauge QC = 28 , J3 = 30) ──
             SaveApproverFlow(Doc_No);
 
             MarkDone("SEND", Doc_No);   // ✅ 6F-5 : ก่อนส่งเมล — Request ที่ซ้ำเข้ามาจะไม่ส่งเมลซ้ำ
 
             // ── เมลถึง Approver 1 (best-effort) ──
-            try { SendApproverMail(Doc_No, "30"); }
+            try { SendApproverMail(Doc_No, ApvStatus(1)); }
             catch (Exception exMail) { System.Diagnostics.Debug.WriteLine("[SendApproverMail] " + exMail.Message); }
 
             // ── redirect ──
@@ -2174,7 +2239,7 @@ namespace Tool_Equipment_Control_System
             // ── 3.1 Reject → To Requester , CC Approver ตามขั้น ──
             if (mode == "approve" || mode == "confirm")
             {
-                int rejStep = status_id == "30" ? 1 : (status_id == "31" ? 2 : 3);
+                int rejStep = ApvStepOfStatus(status_id); if (rejStep == 0) rejStep = 3;
                 try { SendResultMail(Doc_No, MailKind.Reject, rejStep, comment); }
                 catch (Exception exMail) { System.Diagnostics.Debug.WriteLine("[Mail Reject] " + exMail.Message); }
             }
@@ -2296,9 +2361,11 @@ namespace Tool_Equipment_Control_System
         }
 
         /// <summary>บันทึก J3 Approver ของ 1 แผนกลง NotificationofChange_Approver</summary>
-        private void InsertApproverGroup(string Doc_No, string deptApprove,
+        private System.Collections.Generic.List<string> InsertApproverGroup(string Doc_No, string deptApprove,
             System.Collections.Generic.List<string> empIds, string statusId)
         {
+            var inserted = new System.Collections.Generic.List<string>();
+            bool isQc = statusId == STATUS_QC_CHECK;   // QC : ดึงจาก Authorize status 28 ไม่กรองแผนก
             string sql = @"
                 INSERT INTO NotificationofChange_Approver
                 ( Doc_No, emp_id, emp_name, email, position_name, position_code, tel, dept_code, status_id, approve_flag, create_date )
@@ -2307,7 +2374,10 @@ namespace Tool_Equipment_Control_System
             deptApprove = (deptApprove ?? "").Trim();
 
             string qSql;
-            if (deptApprove == "5505")
+            if (isQc)
+                qSql = "SELECT TOP 1 Name, email, position_name, position_code, dept_code FROM View_Authorize_J3_Approve" +
+                       " WHERE document_id='AAD2' AND status_id=" + STATUS_QC_CHECK + " AND emp_id=@emp";
+            else if (deptApprove == "5505")
                 qSql = "SELECT TOP 1 Name, email, position_name, position_code FROM View_Authorize_J3_Approve" +   
                        " WHERE document_id='AAD2' AND status_id=30 AND LTRIM(RTRIM(dept_code))=@dept AND emp_id=@emp";
             else
@@ -2318,10 +2388,11 @@ namespace Tool_Equipment_Control_System
 
             foreach (string empId in empIds)
             {
-                string name = null, email = null, pos = null, posCode = null;
+                string name = null, email = null, pos = null, posCode = null, rowDept = deptApprove;
                 using (SqlCommand q = new SqlCommand(qSql, conn))
                 {
-                    if (deptApprove == "5505")
+                    if (isQc) { }
+                    else if (deptApprove == "5505")
                         q.Parameters.AddWithValue("@dept", deptApprove);
                     else
                         q.Parameters.AddWithValue("@deptPrefix", deptApprove.Substring(0, Math.Min(3, deptApprove.Length)));
@@ -2334,6 +2405,7 @@ namespace Tool_Equipment_Control_System
                             email = rd["email"] == DBNull.Value ? null : rd["email"].ToString();
                             pos = rd["position_name"] == DBNull.Value ? null : rd["position_name"].ToString();
                             posCode = rd["position_code"] == DBNull.Value ? null : rd["position_code"].ToString();
+                            if (isQc && rd["dept_code"] != DBNull.Value) rowDept = rd["dept_code"].ToString().Trim();
                         }
                     }
                 }
@@ -2353,13 +2425,15 @@ namespace Tool_Equipment_Control_System
                     cmd.Parameters.AddWithValue("@position_name", (object)pos ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@position_code", (object)posCode ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@tel", string.IsNullOrEmpty(tel) ? (object)DBNull.Value : tel);
-                    cmd.Parameters.AddWithValue("@dept_code", deptApprove);
+                    cmd.Parameters.AddWithValue("@dept_code", rowDept ?? "");
                     cmd.Parameters.AddWithValue("@status_id", statusId);
                     cmd.Parameters.AddWithValue("@approve_flag", "wait");
                     cmd.Parameters.AddWithValue("@create_date", DateTime.Now);
                     cmd.ExecuteNonQuery();
                 }
+                inserted.Add(empId);
             }
+            return inserted;
         }
 
         // ── บันทึก J3 Approver ที่เลือก ──
@@ -3922,7 +3996,7 @@ namespace Tool_Equipment_Control_System
                         " phone=@phone, change_type=@change_type, dept_code_approve=@dept_code_approve, dept_code_approve2=@dept_code_approve2, " +
                         " reason_id=@reason_id, reason_remark=@reason_remark, update_date=@update_date, send_date=@send_date " +
                         " WHERE Doc_No=@Doc_No" +
-                        (status_id == "30" ? " AND status_id = 1" : "");      // ✅ ส่งได้เฉพาะเอกสารที่ยังเป็น Draft
+                        (IsSendStatus(status_id) ? " AND status_id = 1" : "");      // ✅ ส่งได้เฉพาะเอกสารที่ยังเป็น Draft
 
                     using (SqlCommand cmd = new SqlCommand(sqlHeader, conn))
                     {
@@ -3941,7 +4015,7 @@ namespace Tool_Equipment_Control_System
                         //cmd.ExecuteNonQuery();
                         int affected = cmd.ExecuteNonQuery();
 
-                        if (status_id == "30" && affected == 0)
+                        if (IsSendStatus(status_id) && affected == 0)
                         {
                             alert_toast("เอกสารนี้ถูกส่งไปแล้ว หรือสถานะเปลี่ยนไปแล้ว — ระบบไม่บันทึกซ้ำ",
                                         "ส่งซ้ำ", "warn", "10000");
@@ -4006,9 +4080,24 @@ namespace Tool_Equipment_Control_System
                     "DELETE FROM NotificationofChange_Approver WHERE Doc_No=@d", conn))
                 { del.Parameters.AddWithValue("@d", Doc_No); del.ExecuteNonQuery(); }
 
-                InsertApproverGroup(Doc_No, deptList[0], empL, "30");
-                if (deptList.Count >= 2)
-                    InsertApproverGroup(Doc_No, deptList[1], empR, "31");
+                if (IsMeasureMode())
+                {
+                    // gauge : ซ้าย = QC Check (28) จาก Authorize / ขวา = J3 Up (30) ของทุกแผนกในเอกสาร
+                    InsertApproverGroup(Doc_No, "", empL, STATUS_QC_CHECK);
+                    var left = new System.Collections.Generic.List<string>(empR);
+                    foreach (string d in deptList)
+                    {
+                        if (left.Count == 0) break;
+                        var done = InsertApproverGroup(Doc_No, d, left, STATUS_J3_APPROVE);
+                        left.RemoveAll(x => done.Contains(x));
+                    }
+                }
+                else
+                {
+                    InsertApproverGroup(Doc_No, deptList[0], empL, "30");
+                    if (deptList.Count >= 2)
+                        InsertApproverGroup(Doc_No, deptList[1], empR, "31");
+                }
             }
             catch (Exception ex)
             {
@@ -4210,7 +4299,7 @@ namespace Tool_Equipment_Control_System
                           @dept_code, @phone, @change_type, @dept_code_approve, @dept_code_approve2,
                           @reason_id, @reason_remark, @update_date )";
             }
-            else if (status_id == "30")
+            else if (IsSendStatus(status_id))
             {
                 sql = @"INSERT INTO NotificationofChange_Control_List
                         ( issue_no, issue_date, Doc_No, status_id, issue_empid,
@@ -4246,7 +4335,7 @@ namespace Tool_Equipment_Control_System
                 cmd.Parameters.AddWithValue("@reason_remark", comment_text);
                 cmd.Parameters.AddWithValue("@update_date", DateTime.Now);
 
-                if (status_id == "30")
+                if (IsSendStatus(status_id))
                     cmd.Parameters.AddWithValue("@send_date", DateTime.Now);
 
                 cmd.ExecuteNonQuery();
@@ -4487,7 +4576,7 @@ namespace Tool_Equipment_Control_System
                     switch (status_id)
                     {
                         case "1": alert_info = "Save Draft"; break;
-                        case "30": alert_info = "Send Complete"; break;
+                        case "30": case "28": alert_info = "Send Complete"; break;
                         case "50": alert_info = "Approve Complete"; break;
                         case "99": alert_info = "Confirm Complete"; break;
                         case "100": alert_info = "Update Complete"; break;
@@ -5184,8 +5273,8 @@ namespace Tool_Equipment_Control_System
             //--- Hide Manual Step 1-6
             SetStepManualVisible(false);
 
-            // --- Approver Manual (30 = Approver1.pdf , 31 = Approver2.pdf)
-            if (status_id == "30" || status_id == "31")
+            // --- Approver Manual (ขั้น 1 = Approver1.pdf , ขั้น 2 = Approver2.pdf)
+            if (ApvStepOfStatus(status_id) > 0)
             {
                 litModeGuide.Text = BuildModeGuide(status_id);
                 hfManualFile.Value = ManualFileByStatus(status_id);
@@ -5397,6 +5486,26 @@ namespace Tool_Equipment_Control_System
 
             pnlNoApprover.Visible = false;
 
+            // ── gauge : ส่วนที่ 1 = ผู้รับผิดชอบ (QC) status 28 / ส่วนที่ 2 = ผู้อนุมัติ (J3 Up) status 30 ──
+            if (IsMeasureMode())
+            {
+                litJ3TitleL.Text = "ผู้รับผิดชอบ (QC) <small>QC Check</small>";
+                litJ3TitleR.Text = "ผู้อนุมัติ (J3 Up) <small>J3 Up Approve ต่อจาก QC</small>";
+                litDeptL.Text = "QC";
+                litDeptR.Text = string.Join(" , ", deptList.Select(d => GetDeptGroupLabel(d)).ToArray());
+                hfJ3SourceL.Value = BuildQcJson();
+                hfJ3SourceR.Value = BuildJ3JsonMulti(deptList);
+
+                ScriptManager.RegisterStartupScript(this, GetType(), "j3ToggleR",
+                    "var r=document.getElementById('j3BoxR'); if(r) r.style.display='block';", true);
+                if (!skipInit)
+                    ScriptManager.RegisterStartupScript(this, GetType(), "j3InitCall",
+                        "if(typeof j3Init==='function'){ j3Init(); }", true);
+                return;
+            }
+            litJ3TitleL.Text = "Approver 1 <small>อนุมัติลำดับแรก</small>";
+            litJ3TitleR.Text = "Approver 2 <small>อนุมัติต่อจาก Approver 1</small>";
+
             // ── กล่องซ้าย (แผนก 1) ──
             string deptL = deptList[0];
             litDeptL.Text = GetDeptGroupLabel(deptL);   // เดิม: litDeptL.Text = deptL;
@@ -5456,6 +5565,51 @@ namespace Tool_Equipment_Control_System
             for (int i = 0; i < dc.dt.Rows.Count; i++)
             {
                 DataRow r = dc.dt.Rows[i];
+                if (i > 0) sb.Append(",");
+                sb.Append("{\"id\":\"" + JsEsc(r["emp_id"]) + "\",\"name\":\"" + JsEsc(r["Name"]) +
+                          "\",\"email\":\"" + JsEsc(r["email"]) + "\",\"dept\":\"" + JsEsc(r["dept_code"]) +
+                          "\",\"posCode\":\"" + JsEsc(r["position_code"]) +
+                          "\",\"position\":\"" + JsEsc(r["position_name"]) + "\"}");
+            }
+            sb.Append("]");
+            return sb.ToString();
+        }
+
+        // ── gauge : รายชื่อ QC Check (Authorize : AAD2 / status 28) — ไม่กรองแผนก , ไม่รวม Requester ──
+        private string BuildQcJson()
+        {
+            string reqId = (txtEmpId.Text ?? "").Trim();
+            dc.QryDT_P(conn,
+                "SELECT emp_id, Name, position_code, position_name, dept_code, email FROM View_Authorize_J3_Approve" +
+                " WHERE document_id='AAD2' AND status_id=" + STATUS_QC_CHECK +
+                " AND LTRIM(RTRIM(emp_id)) <> @req ORDER BY emp_id",
+                new SqlParameter("@req", SqlDbType.NVarChar) { Value = reqId });
+            return RowsToApvJson(dc.dt);
+        }
+
+        // ── gauge : J3 Up (status 30) ของทุกแผนกในเอกสาร รวมเป็นรายการเดียว (ตัดชื่อซ้ำ) ──
+        private string BuildJ3JsonMulti(List<string> deptList)
+        {
+            var merged = new Newtonsoft.Json.Linq.JArray();
+            var seen = new HashSet<string>();
+            foreach (string d in deptList ?? new List<string>())
+            {
+                var arr = Newtonsoft.Json.Linq.JArray.Parse(BuildJ3Json(d));
+                foreach (var o in arr)
+                {
+                    string id = Convert.ToString(o["id"]);
+                    if (seen.Add(id)) merged.Add(o);
+                }
+            }
+            return merged.ToString(Newtonsoft.Json.Formatting.None);
+        }
+
+        private string RowsToApvJson(DataTable t)
+        {
+            var sb = new System.Text.StringBuilder("[");
+            for (int i = 0; i < t.Rows.Count; i++)
+            {
+                DataRow r = t.Rows[i];
                 if (i > 0) sb.Append(",");
                 sb.Append("{\"id\":\"" + JsEsc(r["emp_id"]) + "\",\"name\":\"" + JsEsc(r["Name"]) +
                           "\",\"email\":\"" + JsEsc(r["email"]) + "\",\"dept\":\"" + JsEsc(r["dept_code"]) +
@@ -5591,16 +5745,28 @@ namespace Tool_Equipment_Control_System
                 return false;
             }
 
-            bool hasA2 = !string.IsNullOrEmpty(hfFlowDeptA2.Value);
+            bool gauge = IsMeasureMode();
+            bool hasA2 = gauge || !string.IsNullOrEmpty(hfFlowDeptA2.Value);   // gauge : มี 2 ส่วนเสมอ (QC + J3)
             string reqId = txtEmpId.Text.Trim();
 
             // ✅ R42 : ดึงรายชื่อ J3 ล่าสุดจาก DB (คนที่ถูกถอดสิทธิ์จะหลุดออก)
-            hfJ3SourceL.Value = BuildJ3Json(hfFlowDeptA1.Value);
-            if (hasA2) hfJ3SourceR.Value = BuildJ3Json(hfFlowDeptA2.Value);
+            if (gauge)
+            {
+                var depts = new List<string>();
+                if (!string.IsNullOrEmpty(hfFlowDeptA1.Value)) depts.Add(hfFlowDeptA1.Value);
+                if (!string.IsNullOrEmpty(hfFlowDeptA2.Value)) depts.Add(hfFlowDeptA2.Value);
+                hfJ3SourceL.Value = BuildQcJson();
+                hfJ3SourceR.Value = BuildJ3JsonMulti(depts);
+            }
+            else
+            {
+                hfJ3SourceL.Value = BuildJ3Json(hfFlowDeptA1.Value);
+                if (hasA2) hfJ3SourceR.Value = BuildJ3Json(hfFlowDeptA2.Value);
+            }
 
             var removed = new List<string>();
-            CleanSelected(hfJ3SelectedL, hfJ3SourceL.Value, reqId, "Approver 1", removed);
-            if (hasA2) CleanSelected(hfJ3SelectedR, hfJ3SourceR.Value, reqId, "Approver 2", removed);
+            CleanSelected(hfJ3SelectedL, hfJ3SourceL.Value, reqId, ApvStepLabel(1), removed);
+            if (hasA2) CleanSelected(hfJ3SelectedR, hfJ3SourceR.Value, reqId, ApvStepLabel(2), removed);
 
             ScriptManager.RegisterStartupScript(this, GetType(), "j3Refresh",
                 "if(typeof j3Init==='function'){ j3Init(); }", true);
@@ -5616,13 +5782,13 @@ namespace Tool_Equipment_Control_System
 
             if (SplitIds(hfJ3SelectedL.Value).Count == 0)
             {
-                alert_toast("กรุณาเลือกผู้อนุมัติ Approver 1 อย่างน้อย 1 คน", "ยังไม่เลือก Approver 1", "warn", "10000");
+                alert_toast("กรุณาเลือก " + ApvStepLabel(1) + " อย่างน้อย 1 คน", "ยังไม่เลือก " + ApvStepLabel(1), "warn", "10000");
                 FocusApprover("L");
                 return false;
             }
             if (hasA2 && SplitIds(hfJ3SelectedR.Value).Count == 0)
             {
-                alert_toast("กรุณาเลือกผู้อนุมัติ Approver 2 อย่างน้อย 1 คน", "ยังไม่เลือก Approver 2", "warn", "10000");
+                alert_toast("กรุณาเลือก " + ApvStepLabel(2) + " อย่างน้อย 1 คน", "ยังไม่เลือก " + ApvStepLabel(2), "warn", "10000");
                 FocusApprover("R");
                 return false;
             }
@@ -5694,9 +5860,9 @@ namespace Tool_Equipment_Control_System
             dt.Columns.Add("email", typeof(string));
 
             int no = 1;
-            AddApvRows(dt, ref no, "Approver 1", hfJ3SourceL.Value, hfJ3SelectedL.Value);
-            if (deptList.Count >= 2)
-                AddApvRows(dt, ref no, "Approver 2", hfJ3SourceR.Value, hfJ3SelectedR.Value);
+            AddApvRows(dt, ref no, ApvStepLabel(1), hfJ3SourceL.Value, hfJ3SelectedL.Value);
+            if (deptList.Count >= 2 || IsMeasureMode())   // gauge : QC + J3 เสมอ
+                AddApvRows(dt, ref no, ApvStepLabel(2), hfJ3SourceR.Value, hfJ3SelectedR.Value);
 
             ViewState["SEND_SUMMARY_DT"] = dt;
             _lastSummaryStep = "";
@@ -5790,6 +5956,13 @@ namespace Tool_Equipment_Control_System
                 string d2 = GetVal(dc.dt.Rows[0], "dept_code_approve2");
                 _apvDeptLabelL = d1 == "" ? "" : GetDeptGroupLabel(d1);
                 _apvDeptLabelR = d2 == "" ? "" : GetDeptGroupLabel(d2);
+
+                if (IsMeasureMode())
+                {
+                    // gauge : ขั้น 1 = QC / ขั้น 2 = J3 Up ของแผนกในเอกสาร
+                    _apvDeptLabelR = _apvDeptLabelL + (_apvDeptLabelR == "" ? "" : " , " + _apvDeptLabelR);
+                    _apvDeptLabelL = "QC";
+                }
             }
 
             string sql =
@@ -5797,7 +5970,7 @@ namespace Tool_Equipment_Control_System
                 "        status_id, approve_flag, approve_date" +
                 " FROM NotificationofChange_Approver" +
                 " WHERE Doc_No = @doc" +
-                " ORDER BY CASE WHEN status_id = 30 THEN 0 ELSE 1 END," +
+                " ORDER BY CASE WHEN status_id = " + ApvStatus(1) + " THEN 0 ELSE 1 END," +
                 "          CASE WHEN approve_flag = 'approved' THEN 0 ELSE 1 END, emp_name";
 
             dc.QryDT_P(conn, sql,
@@ -5822,7 +5995,7 @@ namespace Tool_Equipment_Control_System
             {
                 DataRow n = dt.NewRow();
                 n["OrderNo"] = no++;
-                n["StepLabel"] = (GetVal(r, "status_id") == "31") ? "Approver 2" : "Approver 1";
+                n["StepLabel"] = ApvStepLabel(GetVal(r, "status_id") == ApvStatus(2) ? 2 : 1);
                 n["emp_id"] = GetVal(r, "emp_id");
                 n["emp_name"] = GetVal(r, "emp_name");
                 n["position_name"] = GetVal(r, "position_name");
@@ -5888,7 +6061,7 @@ namespace Tool_Equipment_Control_System
 
                 if (i > 0) sb.Append("<div class='apv-prog-arrow'>&#8250;</div>");
 
-                string deptLbl = (step == "Approver 2") ? _apvDeptLabelR : _apvDeptLabelL;
+                string deptLbl = (step == ApvStepLabel(2)) ? _apvDeptLabelR : _apvDeptLabelL;
 
                 sb.Append("<div class='apv-prog-step " + state + "'>" +
                             "<span class='apv-prog-ico'>" + ico + "</span>" +
@@ -5942,7 +6115,7 @@ namespace Tool_Equipment_Control_System
             string tel = Convert.ToString(drv["tel"]).Trim();
             string email = Convert.ToString(drv["email"]).Trim();
             string flag = Convert.ToString(drv["approve_flag"]).Trim().ToLower();
-            bool isA2 = (step == "Approver 2");
+            bool isA2 = (step == ApvStepLabel(2));
             bool grpStart = (step != _lastApvFlowStep);
 
             // ── class แถว : กลุ่ม / เริ่มกลุ่ม / คนที่กดอนุมัติจริง ──
@@ -5989,7 +6162,7 @@ namespace Tool_Equipment_Control_System
             DataRowView drv = (DataRowView)e.Row.DataItem;
 
             string step = Convert.ToString(drv["StepLabel"]);
-            bool isA2 = (step == "Approver 2");
+            bool isA2 = (step == ApvStepLabel(2));
             bool grpStart = (step != _lastSummaryStep);
 
             e.Row.CssClass = (isA2 ? "apv-a2" : "apv-a1") + (grpStart ? " grp-start" : "");
@@ -6364,7 +6537,7 @@ namespace Tool_Equipment_Control_System
             switch (status_id)
             {
                 case "1": alert_info = "Save Draft"; break;
-                case "30": alert_info = "Send Complete"; break;
+                case "30": case "28": alert_info = "Send Complete"; break;
                 case "50": alert_info = "Approve Complete"; break;
                 case "99": alert_info = "Confirm Complete"; break;
                 case "999": alert_info = "Cancel Request"; break;
@@ -6691,7 +6864,7 @@ namespace Tool_Equipment_Control_System
 
         private string StepName(int step)
         {
-            return step == 1 ? "Approver 1" : (step == 2 ? "Approver 2" : "AAD Confirm");
+            return (step == 1 || step == 2) ? ApvStepLabel(step) : "AAD Confirm";
         }
 
         /// <summary>เมลผลการดำเนินการ — To : Requester (ไม่มีอีเมล → Admin แทน) , CC : Admin Level 1 , Link : Equipment Status</summary>
@@ -6887,8 +7060,8 @@ namespace Tool_Equipment_Control_System
         private List<string> GetApproverEmails(string Doc_No, bool includeA2)
         {
             var list = new List<string>();
-            string sql = "SELECT email FROM NotificationofChange_Approver WHERE Doc_No=@d AND (status_id=30" +
-                         (includeA2 ? " OR status_id=31" : "") + ")";
+            string sql = "SELECT email FROM NotificationofChange_Approver WHERE Doc_No=@d AND (status_id=" + ApvStatus(1) +
+                         (includeA2 ? " OR status_id=" + ApvStatus(2) : "") + ")";
             using (var c = new SqlConnection(ConfigurationManager.ConnectionStrings["tool_equipment"].ConnectionString))
             using (var cmd = new SqlCommand(sql, c))
             {
@@ -7686,6 +7859,7 @@ namespace Tool_Equipment_Control_System
         // มี dept ที่ 2 ไหม
         private bool HasSecondDept(string Doc_No)
         {
+            if (IsMeasureMode()) return true;   // gauge : QC → J3 (2 ขั้นเสมอ)
             dc.QryDT_P(conn, "SELECT dept_code_approve2 FROM NotificationofChange_Control_List WHERE Doc_No=@d",
                 new SqlParameter("@d", SqlDbType.NVarChar) { Value = Doc_No });
             if (dc.dt.Rows.Count == 0) return false;
@@ -7696,7 +7870,7 @@ namespace Tool_Equipment_Control_System
         // ตัวเอง = approved , คนอื่นในขั้นเดียวกันที่ยัง wait = delegated (อ้างจาก status_id ของ approver : 30/31)
         private void SetApproverFlag(SqlTransaction tx, string Doc_No, string empId, int step)
         {
-            string st = step == 1 ? "30" : "31";
+            string st = ApvStatus(step);
 
             using (SqlCommand c = new SqlCommand(
                 "UPDATE NotificationofChange_Approver SET approve_flag='approved', approve_date=@dt" +
@@ -7729,7 +7903,7 @@ namespace Tool_Equipment_Control_System
                 " WHERE Doc_No=@doc AND status_id=@st", conn, tx))
             {
                 c.Parameters.AddWithValue("@doc", Doc_No);
-                c.Parameters.AddWithValue("@st", step == 1 ? "30" : "31");
+                c.Parameters.AddWithValue("@st", ApvStatus(step));
                 c.ExecuteNonQuery();
             }
         }
@@ -7740,7 +7914,7 @@ namespace Tool_Equipment_Control_System
             string setApv = "";
             if (approveStep == 1) setApv = ", approve_empid=@emp, approve_date=@dt";
             else if (approveStep == 2) setApv = ", approve_empid2=@emp, approve_date2=@dt";
-            else if (status == 30 || status == 1) setApv = ", approve_empid=NULL, approve_date=NULL, approve_empid2=NULL, approve_date2=NULL";
+            else if (status == ApvStatusInt(1) || status == 1) setApv = ", approve_empid=NULL, approve_date=NULL, approve_empid2=NULL, approve_date2=NULL";
 
             using (SqlCommand c = new SqlCommand(
                 "UPDATE NotificationofChange_Control_List SET status_id=@st, update_date=@dt" + setApv +
@@ -7902,7 +8076,7 @@ namespace Tool_Equipment_Control_System
             string posName = Convert.ToString(drv["position_name"]).Trim();
             string tel = Convert.ToString(drv["tel"]).Trim();
             string email = Convert.ToString(drv["email"]).Trim();
-            bool isA2 = (step == "Approver 2");
+            bool isA2 = (step == ApvStepLabel(2));
 
             // ── ขั้น : แสดงเฉพาะแถวแรกของกลุ่ม (+ แผนก ถ้ามี) ──
             Literal litStep = row.FindControl(stepLitId) as Literal;
@@ -7977,7 +8151,7 @@ namespace Tool_Equipment_Control_System
             bool two = IsTwoDeptDoc();
 
             // รอบส่งกลับจาก A2 (status 30 + มี a2 ค้าง)
-            if (st == 30 && a2 != "")
+            if (st == ApvStatusInt(1) && a2 != "")
                 return (a1 != a2) ? "review" : (a2 == "Y" ? "waitA1" : "ng");
 
             if (rf == "reject") return "ng";
@@ -8459,6 +8633,9 @@ namespace Tool_Equipment_Control_System
         /// <summary>ไฟล์คู่มือตามสถานะ : 30 = Approver1 , 31 = Approver2 , 50 = Confirm (สถานะอื่นคืน "")</summary>
         private string ManualFileByStatus(string status_id)
         {
+            int apvStep = ApvStepOfStatus(status_id);
+            if (apvStep == 1) return "Approver1";
+            if (apvStep == 2) return "Approver2";
             switch ((status_id ?? "").Trim())
             {
                 case "30": return "Approver1";

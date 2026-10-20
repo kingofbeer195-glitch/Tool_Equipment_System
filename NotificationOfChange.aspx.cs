@@ -7682,8 +7682,12 @@ namespace Tool_Equipment_Control_System
             foreach (string c in new[] { "RowKey", "FixAssetNo", "ControlNo", "ToolNo",
                                  "OldDept", "OldModel", "OldCell", "OldStation",
                                  "NewDept", "NewModel", "NewCell", "NewStation",
-                                 "UseDept", "StatusId", "RespEmpId", "RespName" })
+                                 "UseDept", "StatusId", "RespEmpId", "RespName",
+                                 "RuleName", "RuleStatusId", "RuleResp", "RuleRespNames" })
                 dt.Columns.Add(c, typeof(string));
+
+            // กฎ Auto Assign (หน้า System Setup → ใช้กับ Withdraw : Dept / Cell / Station) — cache ต่อ key
+            var ruleCache = new Dictionary<string, DataTable>();
             dt.Columns.Add("RowNo", typeof(int));
             dt.Columns.Add("Rejected", typeof(bool));
 
@@ -7716,6 +7720,37 @@ namespace Tool_Equipment_Control_System
                 n["StatusId"] = GetVal(r, "Use_StatusId");
                 n["RespEmpId"] = GetVal(r, "Resp_EmpId");
                 n["RespName"] = GetVal(r, "Resp_Name");
+
+                // ── กฎ Auto Assign : จับคู่ด้วย ID (Cell/Station ที่พิมพ์เอง = ไม่มี ID → ใช้แค่ Dept) ──
+                if (!rej)
+                {
+                    string cellId = GetVal(r, "HD_Cell") == "txt" ? "" : GetVal(r, "Use_CellId");
+                    string staId = GetVal(r, "HD_Station") == "txt" ? "" : GetVal(r, "Use_StationId");
+                    string ck = GetVal(r, "Use_DeptCode") + "|" + cellId + "|" + staId;
+                    DataTable rule;
+                    if (!ruleCache.TryGetValue(ck, out rule))
+                    {
+                        rule = ResolveAutoAssign(GetVal(r, "Use_DeptCode"), cellId, staId);
+                        ruleCache[ck] = rule;
+                    }
+                    if (rule.Rows.Count > 0)
+                    {
+                        var ids = new List<string>();
+                        var names = new List<string>();
+                        foreach (DataRow rr in rule.Rows)
+                        {
+                            string id = GetVal(rr, "emp_id");
+                            if (id == "" || ids.Contains(id)) continue;
+                            string nm = GetVal(rr, "pic_dept");
+                            ids.Add(id);
+                            names.Add(nm == "" ? id : nm + " (" + id + ")");
+                        }
+                        n["RuleName"] = GetVal(rule.Rows[0], "rule_name");
+                        n["RuleStatusId"] = GetVal(rule.Rows[0], "status_use_id");
+                        n["RuleResp"] = string.Join("|", ids.ToArray());
+                        n["RuleRespNames"] = string.Join("|", names.ToArray());
+                    }
+                }
                 dt.Rows.Add(n);
             }
 
@@ -7763,29 +7798,82 @@ namespace Tool_Equipment_Control_System
             foreach (DataRow m in GetStatusUseMaster().Rows)
                 ddlSt.Items.Add(new ListItem(m["status_name"].ToString().Trim(), m["status_id"].ToString().Trim()));
 
+            // ✅ Auto Assign (เหมือน Withdraw) : ค่าที่เลือกไว้แล้ว → กฎ → ไม่เข้ากฎ = ว่างไว้ (AAD เลือกเอง)
+            string ruleName = Convert.ToString(drv["RuleName"]);
+            string ruleSt = Convert.ToString(drv["RuleStatusId"]);
             string st = Convert.ToString(drv["StatusId"]);
-            if (st == "") st = DefaultStatusUse(Convert.ToString(drv["UseDept"]));     // ✅ ข้อ 1
-            if (ddlSt.Items.FindByValue(st) != null) ddlSt.SelectedValue = st;
+            if (st == "" && ruleSt != "") st = ruleSt;
+            if (st != "" && ddlSt.Items.FindByValue(st) != null) ddlSt.SelectedValue = st;
+            else ddlSt.SelectedIndex = 0;                                   // -- Select --
 
-            // ── ผู้รับผิดชอบ : WHERE dept_code = Use Dept , ค่าเริ่มต้น = รายชื่อแรก ──
+            // ── ผู้รับผิดชอบ : คนตามกฎ (⭐ แนะนำ) บนสุด + รายชื่อทั้งหมดของ Use Dept ต่อท้าย ──
+            string[] ruleIds = Convert.ToString(drv["RuleResp"]).Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] ruleNames = Convert.ToString(drv["RuleRespNames"]).Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+
+            ddlRp.Items.Add(new ListItem("-- Select --", ""));
+            for (int i = 0; i < ruleIds.Length; i++)
+                ddlRp.Items.Add(new ListItem("⭐ " + (i < ruleNames.Length ? ruleNames[i] : ruleIds[i]) + " — แนะนำ", ruleIds[i]));
+
             foreach (DataRow m in RespOfDept(Convert.ToString(drv["UseDept"])))
-                ddlRp.Items.Add(new ListItem(RespText(m), m["emp_id"].ToString().Trim()));
+            {
+                string id = m["emp_id"].ToString().Trim();
+                if (ddlRp.Items.FindByValue(id) == null)
+                    ddlRp.Items.Add(new ListItem(RespText(m), id));
+            }
 
             string rp = Convert.ToString(drv["RespEmpId"]);
             if (rp != "" && ddlRp.Items.FindByValue(rp) == null)        // ค่าที่เคยเลือกแต่ไม่อยู่ใน master แล้ว
             {
                 string nm = Convert.ToString(drv["RespName"]);
-                ddlRp.Items.Insert(0, new ListItem(nm == "" ? rp : nm + " (" + rp + ")", rp));
+                ddlRp.Items.Insert(1, new ListItem(nm == "" ? rp : nm + " (" + rp + ")", rp));
             }
-            if (ddlRp.Items.Count == 0)
-                ddlRp.Items.Add(new ListItem("-- ไม่มีผู้รับผิดชอบของ Dept นี้ --", ""));
 
+            if (rp == "" && ruleIds.Length > 0) rp = ruleIds[0];           // มีกฎ = คนแรกของกฎ
             if (rp != "") ddlRp.SelectedValue = rp;
-            else ddlRp.SelectedIndex = 0;     // ✅ แสดงรายชื่อแรก
+            else ddlRp.SelectedIndex = 0;                                   // ไม่เข้ากฎ = ว่าง
+
+            // ── หมายเหตุใต้ Dropdown : มาจากกฎไหน ──
+            var note = e.Row.FindControl("litRuleNote") as Literal;
+            if (note != null)
+            {
+                if (ruleName != "")
+                    note.Text = "<div class='rule-note hit' title='ตั้งค่าที่ System Setup'>🤖 กฎ : " + Server.HtmlEncode(ruleName) +
+                                (ruleIds.Length > 1 ? " · <b>แนะนำ " + ruleIds.Length + " คน</b> (เลือกคนแรกให้แล้ว)" :
+                                 ruleIds.Length == 1 ? " · เลือกให้อัตโนมัติ" : " · ไม่กำหนดผู้รับผิดชอบ") + "</div>";
+                else
+                    note.Text = "<div class='rule-note'>ไม่ตรงกฎ Auto Assign — กรุณาเลือก Status Use / ผู้รับผิดชอบ</div>";
+            }
 
             // ✅ ข้อ 2 : ช่องที่ต้องตรวจ = สีเหลือง / ยังไม่มีค่า = ขอบแดง
             ddlSt.CssClass = "form-control form-control-sm ddl_edit aad-ddl" + (ddlSt.SelectedValue == "" ? " aad-ddl-empty" : "");
             ddlRp.CssClass = "form-control form-control-sm ddl_edit aad-ddl" + (ddlRp.SelectedValue == "" ? " aad-ddl-empty" : "");
+        }
+
+        /// <summary>กฎ Auto Assign (หน้า System Setup — ชุดเดียวกับ Withdraw) → sp_AutoAssign_Resolve
+        ///          คืน 1 แถวต่อผู้รับผิดชอบ (เรียง seq) / ไม่ตรงกฎ หรือยังไม่ได้ติดตั้ง SP = ตารางว่าง</summary>
+        private DataTable ResolveAutoAssign(string dept, string cellId, string stationId)
+        {
+            var dt = new DataTable();
+            if ((dept ?? "").Trim() == "" && (cellId ?? "") == "" && (stationId ?? "") == "") return dt;
+            try
+            {
+                using (var c = new SqlConnection(ConfigurationManager.ConnectionStrings["tool_equipment"].ConnectionString))
+                using (var cmd = new SqlCommand("sp_AutoAssign_Resolve", c))
+                {
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    cmd.Parameters.AddWithValue("@dept", (dept ?? "").Trim());
+                    cmd.Parameters.AddWithValue("@cell_id", string.IsNullOrEmpty(cellId) ? (object)DBNull.Value : cellId);
+                    cmd.Parameters.AddWithValue("@station_id", string.IsNullOrEmpty(stationId) ? (object)DBNull.Value : stationId);
+                    using (var da = new SqlDataAdapter(cmd)) da.Fill(dt);
+                }
+            }
+            catch (Exception ex)
+            {
+                // ไม่ให้ AAD Confirm ใช้งานไม่ได้เพราะกฎ → ไม่มีกฎ (AAD เลือกเอง)
+                System.Diagnostics.Debug.WriteLine("[AutoAssign] " + ex.Message);
+                dt = new DataTable();
+            }
+            return dt;
         }
 
         /// <summary>อ่าน Dropdown ใน Modal → ChangeListDT + ตรวจครบ (ลงสีเหลืองช่องที่ขาด)</summary>
@@ -7826,7 +7914,7 @@ namespace Tool_Equipment_Control_System
                 if (noSt || noRp)
                     msgs.Add("• รายการที่ " + no + (GetVal(row, "FixAssetNo") != "" ? " (" + GetVal(row, "FixAssetNo") + ")" : "") + " : " +
                              (noSt ? "ยังไม่เลือก Status Use " : "") +
-                             (noRp ? "ไม่มีผู้รับผิดชอบของ Use Dept " + GetVal(row, "Use_DeptCode") + " (ตรวจตาราง Responsible_Dept)" : ""));
+                             (noRp ? "ยังไม่เลือกผู้รับผิดชอบ (Use Dept " + GetVal(row, "Use_DeptCode") + ")" : ""));
             }
             ChangeListDT = dt;
 

@@ -592,7 +592,7 @@
                                     <span class="sc-pulse"></span>
                                     <div class="sc-icon">⏳</div>
                                     <div class="sc-body">
-                                        <span class="sc-label">ร้องขอเบิกอุปกรณ์</span>
+                                        <span class="sc-label">ร้องขอจัดการอุปกรณ์</span>
                                         <span class="sc-hint">AAD Confirm →</span>
                                     </div>
                                     <span class="sc-value" runat="server" id="valWaitApprove">0</span>

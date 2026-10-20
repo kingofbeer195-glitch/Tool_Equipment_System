@@ -911,6 +911,9 @@
         .bw .mode-issue   { background: #e3f4e8; color: #16703d; border-color: #b6e0c4; }  /* สร้าง/แก้ไข */
         .bw .mode-view    { background: #f0f1f3; color: #4b5663; border-color: #d9dde2; }  /* ดูอย่างเดียว */
         .bw .mode-approve { background: #e8f0fe; color: #1a5bc4; border-color: #bcd1f7; }  /* อนุมัติ */
+        /* AAD Confirm : ที่มาของค่า Auto Assign (เหมือนหน้า Withdraw) */
+        .rule-note { margin-top:4px; font-size:11.5px; color:#66727f; white-space:normal; max-width:260px; }
+        .rule-note.hit { color:#7a4f00; background:#fff4e0; border:1px solid #f5c26b; border-radius:4px; padding:2px 6px; }
         .bw .mode-qc { background: #f4effc; color: #6f42c1; border-color: #d9c8f3; }  /* QC Check (แจ้งเปลี่ยนเครื่องมือวัด) */
         .bw .mode-confirm { background: #f5e9f8; color: #92278f; border-color: #dfc0e6; }  /* AAD Confirm */
         .readme-btn { font-size: 22px; color: var(--muted); cursor: pointer; }
@@ -2905,6 +2908,7 @@
                                             HeaderStyle-CssClass="hdr-aad" ItemStyle-CssClass="col-aad">
                                             <ItemTemplate>
                                                 <asp:DropDownList ID="ddlResponsible" runat="server" CssClass="form-control form-control-sm ddl_edit" />
+                                                <asp:Literal ID="litRuleNote" runat="server" />
                                             </ItemTemplate>
                                         </asp:TemplateField>
 

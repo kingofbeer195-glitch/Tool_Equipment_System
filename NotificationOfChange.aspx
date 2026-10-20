@@ -662,7 +662,7 @@
                     showToast('กรุณาระบุเหตุผลการ Reject อย่างน้อย 10 ตัวอักษร', { title: 'ต้องระบุเหตุผล', type: 'warn', duration: 10000 });
                     return false;
                 }
-                if (!confirm('⚠️ รายการที่เลือกไม่ตรงกับ Approver 1\nเอกสารจะถูก Reject กลับไปยังผู้ร้องขอ (Draft)\nกด OK เพื่อดำเนินการต่อ')) return false;
+                if (!confirm('⚠️ รายการที่เลือกไม่ตรงกับ ' + (window.apvRefLabel || 'Approver 1') + '\nเอกสารจะถูก Reject กลับไปยังผู้ร้องขอ (Draft)\nกด OK เพื่อดำเนินการต่อ')) return false;
                 showLoading(); return true;
             }
             if (s.checked === 0) {
@@ -911,6 +911,7 @@
         .bw .mode-issue   { background: #e3f4e8; color: #16703d; border-color: #b6e0c4; }  /* สร้าง/แก้ไข */
         .bw .mode-view    { background: #f0f1f3; color: #4b5663; border-color: #d9dde2; }  /* ดูอย่างเดียว */
         .bw .mode-approve { background: #e8f0fe; color: #1a5bc4; border-color: #bcd1f7; }  /* อนุมัติ */
+        .bw .mode-qc { background: #f4effc; color: #6f42c1; border-color: #d9c8f3; }  /* QC Check (แจ้งเปลี่ยนเครื่องมือวัด) */
         .bw .mode-confirm { background: #f5e9f8; color: #92278f; border-color: #dfc0e6; }  /* AAD Confirm */
         .readme-btn { font-size: 22px; color: var(--muted); cursor: pointer; }
         .readme-btn:hover { color: var(--confirm); }
@@ -2359,7 +2360,7 @@
                     <div class="bw-card-head">
                         <asp:Literal ID="step_approver" runat="server" Text="<span class='step-no'>6</span>" />
                         <div class="bw-card-title">
-                            <h2>ผู้อนุมัติ (J3 Up)
+                            <h2><asp:Literal ID="litStep6Title" runat="server" Text="ผู้อนุมัติ (J3 Up)" />
                                 <asp:LinkButton ID="btnManual6" runat="server" CssClass="manual-btn"
                                     OnClientClick="return openManualStep(6);" ToolTip="คู่มือ Step 6">
                                     <span class="glyphicon glyphicon-book"></span>
@@ -2707,7 +2708,7 @@
 
                     <div class="modal-box" style="width:95vw; max-height:90vh;">
                         <div class="modal-head">
-                            <span>อนุมัติการแจ้งเปลี่ยนแปลง <span class="doc"><asp:Literal ID="litApvDoc" runat="server" /></span></span>
+                            <span><asp:Literal ID="litApvHead" runat="server" Text="อนุมัติการแจ้งเปลี่ยนแปลง" /> <span class="doc"><asp:Literal ID="litApvDoc" runat="server" /></span></span>
                             <span style="display:inline-flex; align-items:center; gap:8px; margin-left:auto;">
                                 <a href="#" class="manual-btn" style="width:auto; padding:0 10px; gap:4px;"
                                    title="คู่มือการอนุมัติ" onclick="return openApvManual();">
@@ -2727,7 +2728,7 @@
                             <asp:Literal ID="litApvNotice" runat="server" />
 
                             <div id="apvMismatchNotice" class="apv-mismatch-notice" style="display:none;">
-                                <b>⚠️ รายการที่เลือกไม่ตรงกับ Approver 1</b>
+                                <b>⚠️ รายการที่เลือกไม่ตรงกับ <asp:Literal ID="litApvMismatchRef" runat="server" Text="Approver 1" /></b>
                                 เมื่อกดยืนยัน เอกสารจะถูก <b>Reject กลับไปยังผู้ร้องขอ (Draft)</b> เพื่อให้จัดทำข้อมูล Request ใหม่
                                 — ต้องระบุเหตุผลอย่างน้อย 10 ตัวอักษร
                             </div>

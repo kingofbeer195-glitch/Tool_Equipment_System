@@ -566,6 +566,7 @@ namespace Tool_Equipment_Control_System
                     btnConfirm.Visible = false;
                     btnApprove.Visible = true;
                     btnReturn.Visible = false;
+                    if (status_id == 28) btnApprove.Text = "QC Confirm";
                 }
                 // AAD Confirm
                 else if (status_id == 50)
@@ -901,10 +902,12 @@ namespace Tool_Equipment_Control_System
 
             DataRow r = dc.dt.Rows[0];
 
-            // ✅ ตรวจว่ามี Approver ขั้นที่ 2 หรือไม่
-            dc.QryDT(conn, "SELECT dept_code_approve2 FROM NotificationofChange_Control_List " +
+            // ✅ ตรวจว่ามี Approver ขั้นที่ 2 หรือไม่ + โหมดเอกสาร
+            dc.QryDT(conn, "SELECT dept_code_approve2, change_type FROM NotificationofChange_Control_List " +
                            "WHERE Doc_No = '" + Doc_No.Replace("'", "''") + "'");
             bool hasApprove2 = dc.dt.Rows.Count > 0 && HasValue(dc.dt.Rows[0]["dept_code_approve2"]);
+            // แจ้งเปลี่ยนเครื่องมือวัด : 28 QC Check (ผู้อนุมัติขั้น 1) → 30 J3 Up (ผู้อนุมัติขั้น 2)
+            bool isGauge = dc.dt.Rows.Count > 0 && SafeStr(dc.dt.Rows[0]["change_type"]).Trim() == "gauge";
 
             lblHistDocNo.Text = Doc_No;
 
@@ -923,13 +926,20 @@ namespace Tool_Equipment_Control_System
             {
                 int sid = Convert.ToInt32(s["status_id"]);
                 if (sid <= 1 || sid == 999) continue;
-                if (sid == 31 && !hasApprove2) continue;   // ✅ ไม่มี Approver 2 → แสดงแค่ 30
+                if (isGauge && sid == 31) continue;                    // gauge : ไม่มีขั้น 31
+                if (!isGauge && sid == 28) continue;                   // โหมดปกติ : ไม่มี QC Check
+                if (!isGauge && sid == 31 && !hasApprove2) continue;   // ✅ ไม่มี Approver 2 → แสดงแค่ 30
 
                 object stageDate = DBNull.Value;
                 object stageEmp = DBNull.Value;
 
+                // gauge : ผู้อนุมัติขั้น 1 (QC) เก็บที่ process30 , ขั้น 2 (J3) เก็บที่ process31
+                int colSid = sid;
+                if (isGauge && sid == 28) colSid = 30;
+                else if (isGauge && sid == 30) colSid = 31;
+
                 string[] cols;
-                if (StageColumns.TryGetValue(sid, out cols))
+                if (StageColumns.TryGetValue(colSid, out cols))
                 {
                     stageDate = GetCol(r, cols[0], cols[0]);
                     stageEmp = cols[1] == null ? (object)"Auto"

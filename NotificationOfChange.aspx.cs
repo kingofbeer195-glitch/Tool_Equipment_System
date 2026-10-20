@@ -189,6 +189,18 @@ namespace Tool_Equipment_Control_System
                     LoadApproverFlow(Doc_NO);
                     Bind_History_Reject(Doc_NO);
 
+                    // ✅ แจ้งเปลี่ยนเครื่องมือวัด @ 28 : ผู้ที่เป็น QC ของเอกสารนี้ เปิดจากหน้าไหนก็ได้ → Mode QC Check
+                    if (mode != "approve" && mode != "confirm" && IsMeasureMode() && status_id == STATUS_QC_CHECK)
+                    {
+                        int qStep, qStatus; string qFlag;
+                        string me = Session["emp_id"] != null ? Session["emp_id"].ToString() : "";
+                        if (CheckApproverRight(Doc_NO, me, out qStep, out qStatus, out qFlag))
+                        {
+                            mode = "approve";
+                            ViewState["MODE"] = mode;
+                        }
+                    }
+
                     if (mode == "view")
                     {
                         SetViewMode(status_id);
@@ -1303,12 +1315,17 @@ namespace Tool_Equipment_Control_System
             string badge = (step == 1)
                 ? "<span class='badge' style='background:#2980b9;'>Approve 1 (Current Dept)</span>"
                 : "<span class='badge' style='background:#e67e22;'>Approve 2 (Use Dept)</span>";
+            if (IsMeasureMode())
+                badge = (step == 1)
+                    ? "<span class='badge' style='background:#6f42c1;'>QC Check</span>"
+                    : "<span class='badge' style='background:#e67e22;'>J3 Up Approve</span>";
             ScriptManager.RegisterStartupScript(this, GetType(), "apvBadge",
                 "var b=document.getElementById('apvStepBadge'); if(b) b.innerHTML=\"" + badge + "\";", true);
 
             // เปิด modal
             ScriptManager.RegisterStartupScript(this, GetType(), "openApvModal",
                 "window.apvStep=" + step + "; window.apvSwap=" + (IsPairMode() ? "true" : "false") + ";" +
+                "window.apvRefLabel='" + HttpUtility.JavaScriptStringEncode(ApvStepLabel(1)) + "';" +
                 "document.getElementById('" + pnlApproveModal.ClientID + "').style.display='flex'; " +
                 "if(typeof apvBindEvents==='function') apvBindEvents();", true);
         }
@@ -4940,6 +4957,18 @@ namespace Tool_Equipment_Control_System
             }
             if (rows.Count == 0) return res;
 
+            // ✅ แจ้งเปลี่ยนเครื่องมือวัด : J3 Up Approve แผนกเดียว (status 30)
+            //    รายการจะมี 5505 อยู่เสมอ และ 5505 ไม่ต้อง Approve → ใช้แผนกแรกที่ไม่ใช่ 5505
+            //    (ทุกรายการเป็น 5505 → ใช้ 5505)
+            if (IsMeasureMode())
+            {
+                var gGroups = new System.Collections.Generic.List<string>();
+                foreach (DataRow r in rows) AddDeptGroupDistinct(gGroups, ApvDept(r));
+                res.A1 = gGroups.FirstOrDefault(g => g != "5505") ?? (gGroups.Count > 0 ? gGroups[0] : null);
+                res.A2 = null;
+                return res;
+            }
+
             // ✅ โหมดสลับ : ต้องมี 2 แผนกเสมอ → A1 = กลุ่ม Dept แรก , A2 = อีกกลุ่ม
             if (IsPairMode())
             {
@@ -5349,6 +5378,27 @@ namespace Tool_Equipment_Control_System
                 ViewState["APPROVE_EDIT"] = "0";
 
             LockApproverFlow();
+
+            // ✅ แจ้งเปลี่ยนเครื่องมือวัด
+            if (IsMeasureMode())
+            {
+                litApvMismatchRef.Text = ApvStepLabel(1);
+                if (status_id == STATUS_QC_CHECK) ApplyQcCheckModeUI();
+            }
+        }
+
+        // ── Mode : QC Check (gauge / status 28) — QC ยืนยันการเปลี่ยนเครื่องมือวัดตามรายการ ──
+        private void ApplyQcCheckModeUI()
+        {
+            lb_mode.Text = "QC Check";
+            lb_mode.CssClass = "mode-badge mode-qc";
+
+            btnApprove.Controls.Clear();
+            btnApprove.Text = "<span class='glyphicon glyphicon-check'></span> QC Confirm";
+            btnApprove.ToolTip = "ยืนยันการเปลี่ยนเครื่องมือวัดตามรายการ";
+
+            litApvHead.Text = "QC Check : ยืนยันการเปลี่ยนเครื่องมือวัด";
+            btnApvConfirm.Text = "ยืนยัน QC Confirm";
         }
         /// <summary>ปิดการแก้ไข control ทั้งหมดในแถว (recursive)</summary>
         private void MakeRowReadonly(Control parent)
@@ -5489,12 +5539,19 @@ namespace Tool_Equipment_Control_System
             // ── gauge : ส่วนที่ 1 = ผู้รับผิดชอบ (QC) status 28 / ส่วนที่ 2 = ผู้อนุมัติ (J3 Up) status 30 ──
             if (IsMeasureMode())
             {
+                litStep6Title.Text = "ผู้รับผิดชอบ (QC) / ผู้อนุมัติ (J3 Up)";
                 litJ3TitleL.Text = "ผู้รับผิดชอบ (QC) <small>QC Check</small>";
                 litJ3TitleR.Text = "ผู้อนุมัติ (J3 Up) <small>J3 Up Approve ต่อจาก QC</small>";
                 litDeptL.Text = "QC";
                 litDeptR.Text = string.Join(" , ", deptList.Select(d => GetDeptGroupLabel(d)).ToArray());
                 hfJ3SourceL.Value = BuildQcJson();
                 hfJ3SourceR.Value = BuildJ3JsonMulti(deptList);
+
+                var noList = new List<string>();
+                if (hfJ3SourceL.Value == "[]") noList.Add("ผู้รับผิดชอบ (QC) : ยังไม่ได้ตั้งค่า Authorize → AAD2 → QC Check");
+                if (hfJ3SourceR.Value == "[]") noList.Add("ผู้อนุมัติ (J3 Up) แผนก " + litDeptR.Text + " : ไม่พบใน Authorize → AAD2 → J3 Up Approve");
+                if (noList.Count > 0)
+                    alert_toast("ไม่พบรายชื่อผู้อนุมัติ\n" + string.Join("\n", noList.ToArray()), "Step 6", "warn", "12000");
 
                 ScriptManager.RegisterStartupScript(this, GetType(), "j3ToggleR",
                     "var r=document.getElementById('j3BoxR'); if(r) r.style.display='block';", true);
@@ -5503,6 +5560,7 @@ namespace Tool_Equipment_Control_System
                         "if(typeof j3Init==='function'){ j3Init(); }", true);
                 return;
             }
+            litStep6Title.Text = "ผู้อนุมัติ (J3 Up)";
             litJ3TitleL.Text = "Approver 1 <small>อนุมัติลำดับแรก</small>";
             litJ3TitleR.Text = "Approver 2 <small>อนุมัติต่อจาก Approver 1</small>";
 

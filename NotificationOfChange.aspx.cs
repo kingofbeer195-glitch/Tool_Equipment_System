@@ -2153,7 +2153,7 @@ namespace Tool_Equipment_Control_System
                    ?? new System.Collections.Generic.List<string>();
 
             // re-show กล่องขวาถ้ามี 2 แผนก
-            string toggleR = (deptList.Count >= 2)
+            string toggleR = (deptList.Count >= 2 || IsMeasureMode())   // gauge : QC + J3 เสมอ
                 ? "var r=document.getElementById('j3BoxR'); if(r) r.style.display='block';"
                 : "var r=document.getElementById('j3BoxR'); if(r) r.style.display='none';";
 
@@ -5957,6 +5957,21 @@ namespace Tool_Equipment_Control_System
                     }
                 }
 
+                // ✅ หาใน JSON ไม่เจอ / ข้อมูลไม่ครบ → ดึงจาก Authorize (View_Authorize_J3_Approve) ตรง
+                if (string.IsNullOrEmpty(name) || name == id || string.IsNullOrEmpty(email))
+                {
+                    DataRow p = GetAuthorizePerson(id);
+                    if (p != null)
+                    {
+                        if (string.IsNullOrEmpty(name) || name == id) name = GetVal(p, "Name");
+                        if (string.IsNullOrEmpty(email)) email = GetVal(p, "email");
+                        if (string.IsNullOrEmpty(dept)) dept = GetVal(p, "dept_code");
+                        if (string.IsNullOrEmpty(posCode)) posCode = GetVal(p, "position_code");
+                        if (string.IsNullOrEmpty(posName)) posName = GetVal(p, "position_name");
+                    }
+                    if (string.IsNullOrEmpty(name)) name = id;
+                }
+
                 DataRow r = dt.NewRow();
                 r["OrderNo"] = no++;
                 r["StepLabel"] = stepLabel;
@@ -5969,6 +5984,17 @@ namespace Tool_Equipment_Control_System
                 r["email"] = email;
                 dt.Rows.Add(r);
             }
+        }
+
+        // ข้อมูลผู้อนุมัติ 1 คนจาก Authorize (AAD2 : 28 QC / 30 / 31 J3)
+        private DataRow GetAuthorizePerson(string empId)
+        {
+            if (string.IsNullOrEmpty(empId)) return null;
+            dc.QryDT_P(conn,
+                "SELECT TOP 1 emp_id, Name, email, dept_code, position_code, position_name" +
+                " FROM View_Authorize_J3_Approve WHERE document_id='AAD2' AND LTRIM(RTRIM(emp_id))=@e",
+                new SqlParameter("@e", SqlDbType.NVarChar) { Value = empId.Trim() });
+            return dc.dt.Rows.Count > 0 ? dc.dt.Rows[0] : null;
         }
 
         // แปลง source JSON + selected ids → DataTable (emp_id, emp_name)
@@ -6233,7 +6259,7 @@ namespace Tool_Equipment_Control_System
             Literal litState = e.Row.FindControl("litSendState") as Literal;
             if (litState != null)
                 litState.Text = isA2
-                    ? "<span class='apv-st apv-st-wait'>รอ Approver 1 อนุมัติ</span>"
+                    ? "<span class='apv-st apv-st-wait'>รอ " + Server.HtmlEncode(ApvStepLabel(1)) + " อนุมัติ</span>"
                     : "<span class='apv-st apv-st-mail'>ได้รับอีเมลทันที</span>";
 
             _lastSummaryStep = step;
@@ -8146,29 +8172,24 @@ namespace Tool_Equipment_Control_System
                      "<span class='apv-step-dept'>แผนก " + Server.HtmlEncode(deptLabel) + "</span>");
 
             // ── ผู้อนุมัติ ──
-            Literal litPerson = row.FindControl("litPerson") as Literal;
-            if (litPerson != null)
-                litPerson.Text =
+            if (string.IsNullOrWhiteSpace(name)) name = empId;
+            SetApvCell(row, "litPerson", 1,
                     "<div class='apv-person'>" +
                       "<span class='j3-avatar' style='background:" + AvatarColor(name) + "'>" + Server.HtmlEncode(Initials(name)) + "</span>" +
                       "<div class='apv-person-meta'>" +
                         "<span class='apv-person-name'>" + Server.HtmlEncode(name) + "</span>" +
                         "<span class='apv-person-id'>" + Server.HtmlEncode(empId) + "</span>" +
                       "</div>" +
-                    "</div>";
+                    "</div>");
 
             // ── ตำแหน่ง ──
-            Literal litPos = row.FindControl("litPosition") as Literal;
-            if (litPos != null)
-                litPos.Text =
+            SetApvCell(row, "litPosition", 2,
                     (posCode != "" ? "<span class='apv-pos-code'>" + Server.HtmlEncode(posCode) + "</span>" : "") +
                     (posName != "" ? "<span class='apv-pos-name'>" + Server.HtmlEncode(posName) + "</span>" : "") +
-                    (posCode == "" && posName == "" ? "<span class='apv-muted'>—</span>" : "");
+                    (posCode == "" && posName == "" ? "<span class='apv-muted'>—</span>" : ""));
 
             // ── ติดต่อ ──
-            Literal litContact = row.FindControl("litContact") as Literal;
-            if (litContact != null)
-                litContact.Text =
+            SetApvCell(row, "litContact", 3,
                     "<div class='apv-contact'>" +
                       (tel != ""
                           ? "<span><i class='glyphicon glyphicon-earphone'></i>" + Server.HtmlEncode(tel) + "</span>"
@@ -8176,7 +8197,15 @@ namespace Tool_Equipment_Control_System
                       (email != ""
                           ? "<a href='mailto:" + Server.HtmlEncode(email) + "'><i class='glyphicon glyphicon-envelope'></i>" + Server.HtmlEncode(email) + "</a>"
                           : "<span class='apv-muted'><i class='glyphicon glyphicon-envelope'></i>—</span>") +
-                    "</div>";
+                    "</div>");
+        }
+
+        // ใส่ HTML ลง Literal ของคอลัมน์ ; ถ้าหา Literal ไม่เจอ → เขียนลง cell ตาม index แทน
+        private void SetApvCell(GridViewRow row, string litId, int cellIndex, string html)
+        {
+            Literal lit = row.FindControl(litId) as Literal;
+            if (lit != null) { lit.Text = html; return; }
+            if (cellIndex >= 0 && cellIndex < row.Cells.Count) row.Cells[cellIndex].Text = html;
         }
         // เบอร์ภายในจาก sys_user_master
         private string GetUserExt(string empId)

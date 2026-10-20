@@ -492,6 +492,27 @@ namespace Tool_Equipment_Control_System
             hfChangeMode.Value = mode;
             ViewState["CHANGE_MODE"] = mode;
             UpdateModeButtonUI(mode);
+
+            // ✅ แจ้งเปลี่ยนเครื่องมือวัด : ผู้อนุมัติ J3 ที่บันทึกไว้เป็น 30 (ก่อนเปลี่ยน flow เป็น 28 → 31) → ปรับเป็น 31
+            if (mode == MODE_MEASURE)
+                FixGaugeApproverStatus(Doc_No);
+        }
+
+        private void FixGaugeApproverStatus(string Doc_No)
+        {
+            try
+            {
+                using (var c = new SqlConnection(ConfigurationManager.ConnectionStrings["tool_equipment"].ConnectionString))
+                using (var cmd = new SqlCommand(
+                    "UPDATE NotificationofChange_Approver SET status_id = " + STATUS_J3_APPROVE +
+                    " WHERE Doc_No = @d AND status_id = 30", c))
+                {
+                    cmd.Parameters.AddWithValue("@d", Doc_No);
+                    c.Open();
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[FixGaugeApproverStatus] " + ex.Message); }
         }
         /// <summary>โหลดรายการเปลี่ยนแปลง (NotificationofChange_List) เข้า ChangeListDT</summary>
         private void LoadChangeList(string Doc_No)
@@ -1406,7 +1427,8 @@ namespace Tool_Equipment_Control_System
             dc.QryDT_P(conn,
                 "SELECT C.status_id AS doc_status, C.issue_empid, A.approve_flag" +
                 " FROM NotificationofChange_Control_List C" +
-                " JOIN NotificationofChange_Approver A ON A.Doc_No = C.Doc_No AND A.status_id = C.status_id" +
+                " JOIN NotificationofChange_Approver A ON A.Doc_No = C.Doc_No" +
+                "  AND ( A.status_id = C.status_id OR (C.status_id = 31 AND A.status_id = 30) )" +   // J3 เดิมที่บันทึกเป็น 30
                 " WHERE C.Doc_No=@doc AND LTRIM(RTRIM(A.emp_id))=@emp",
                 new SqlParameter("@doc", SqlDbType.NVarChar) { Value = Doc_No },
                 new SqlParameter("@emp", SqlDbType.NVarChar) { Value = empId.Trim() });

@@ -191,7 +191,13 @@ namespace Tool_Equipment_Control_System
 
                 var checkTypeObj_costcenter = tb_data.Rows[0]["costcenterID"];
 
-                if (checkTypeObj_costcenter == DBNull.Value || string.IsNullOrEmpty(checkTypeObj_costcenter.ToString()))
+                if (IsTransferItem())
+                {
+                    // Transfer (location 98 = Supplier) -> ไม่มี Cost Center
+                    ddl_costcenterID.SelectedValue = "0";
+                    txt_costcenterName.Text = "-";
+                }
+                else if (checkTypeObj_costcenter == DBNull.Value || string.IsNullOrEmpty(checkTypeObj_costcenter.ToString()))
                 {
                     ddl_costcenterID.SelectedValue = "0";
                     txt_costcenterName.Text = "-";
@@ -285,6 +291,16 @@ namespace Tool_Equipment_Control_System
                 ddl_dept.DataBind();
             }
         }
+        private const string LOCATION_SUPPLIER = "98"; // Transfer -> Supplier
+
+        // รายการที่ Transfer แล้ว (location1_id = 98)
+        private bool IsTransferItem()
+        {
+            return tb_data != null && tb_data.Rows.Count > 0
+                && tb_data.Columns.Contains("location1_id")
+                && tb_data.Rows[0]["location1_id"].ToString().Trim() == LOCATION_SUPPLIER;
+        }
+
         protected void Get_ddl_costcenterID(string div)
         {
             string str = " select* from View_dept_master order by dept_name2 "; // + (div == "" ? "" : " where division = "+ div);
@@ -603,7 +619,8 @@ namespace Tool_Equipment_Control_System
                     update += " ,[po] = '" + txt_prpo.Text.Trim().Replace("'", "''") + "' ";
                 if (parsedPrice(tb_data.Rows[0]["price"].ToString()) != parsedPrice(txt_price.Text))
                     update += " ,[price] = '" + ParsePriceFromText(txt_price.Text) + "' ";
-                if (tb_data.Rows[0]["costcenterID"].ToString() != ddl_costcenterID.SelectedValue)
+                // Transfer: Cost Center แสดง "-" เฉยๆ ไม่เขียนทับค่าเดิมใน DB
+                if (!IsTransferItem() && tb_data.Rows[0]["costcenterID"].ToString() != ddl_costcenterID.SelectedValue)
                     update += " ,[costcenterID] = '" + ddl_costcenterID.SelectedValue + "' ";
                 if (tb_data.Rows[0]["control_no"].ToString() != txt_controlNo.Text.Trim())
                     update += " ,[control_no] = '" + txt_controlNo.Text.Trim().Replace("'", "''") + "' ";

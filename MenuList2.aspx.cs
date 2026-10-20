@@ -185,7 +185,7 @@ namespace Tool_Equipment_Control_System
                 "          OR (V.document_id = 'AAD2' AND V.status_id IN (50, 99)) " +
                 "          OR (V.document_id = 'AAD3' AND V.status_id IN (50, 99)) " +
                 "          OR (V.document_id = 'AAD4' AND V.status_id IN (10, 50, 99)) ) ) " +
-                // 1.2.2 Approver AAD2 (status 30 = step 1, status 31 = step 2 / gauge : 28 = QC , 30 = J3)
+                // 1.2.2 Approver AAD2 (status 30 = step 1, status 31 = step 2 / gauge : 28 = QC , 31 = Approve 2)
                 "  OR ( V.document_id = 'AAD2' " +
                 "       AND (   ( V.status_id IN (30, 31) " +
                 "                 AND NOT EXISTS (SELECT 1 FROM NotificationofChange_Control_List G " +
@@ -194,8 +194,8 @@ namespace Tool_Equipment_Control_System
                 "                             WHERE N.Doc_No = V.Doc_No AND N.emp_id = @emp_id " +
                 "                               AND (   (V.status_id = 30 AND N.approve_step = 1) " +
                 "                                    OR (V.status_id = 31 AND N.approve_step = 2) ) ) ) " +
-                // แจ้งเปลี่ยนเครื่องมือวัด (gauge) : 28 = QC Check , 30 = J3 Up
-                "            OR ( V.status_id IN (28, 30) " +
+                // แจ้งเปลี่ยนเครื่องมือวัด (gauge) : 28 = QC Check , 31 = Approve 2
+                "            OR ( V.status_id IN (28, 31) " +
                 "                 AND EXISTS (SELECT 1 FROM NotificationofChange_Control_List G " +
                 "                             JOIN NotificationofChange_Approver A " +
                 "                               ON A.Doc_No = G.Doc_No AND A.status_id = G.status_id " +
@@ -240,8 +240,8 @@ namespace Tool_Equipment_Control_System
                 "                             WHERE N.Doc_No = V.Doc_No AND N.emp_id = @emp_id " +
                 "                               AND (   (V.status_id = 30 AND N.approve_step = 1) " +
                 "                                    OR (V.status_id = 31 AND N.approve_step = 2) ) ) ) " +
-                // แจ้งเปลี่ยนเครื่องมือวัด (gauge) : 28 = QC Check , 30 = J3 Up
-                "            OR ( V.status_id IN (28, 30) " +
+                // แจ้งเปลี่ยนเครื่องมือวัด (gauge) : 28 = QC Check , 31 = Approve 2
+                "            OR ( V.status_id IN (28, 31) " +
                 "                 AND EXISTS (SELECT 1 FROM NotificationofChange_Control_List G " +
                 "                             JOIN NotificationofChange_Approver A " +
                 "                               ON A.Doc_No = G.Doc_No AND A.status_id = G.status_id " +

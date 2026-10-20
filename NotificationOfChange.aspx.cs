@@ -250,10 +250,10 @@ namespace Tool_Equipment_Control_System
 
         // ── สถานะของแต่ละขั้น Approve ──────────────────────────
         //  ปกติ (change / swap)        : ขั้น 1 = 30 (J3 Up Approve 1) , ขั้น 2 = 31 (J3 Up Approve 2)
-        //  แจ้งเปลี่ยนเครื่องมือวัด (gauge) : ขั้น 1 = 28 (QC Check)        , ขั้น 2 = 30 (J3 Up)
+        //  แจ้งเปลี่ยนเครื่องมือวัด (gauge) : ขั้น 1 = 28 (QC Check)        , ขั้น 2 = 31 (Approve 2 : J3 Up)
         //                                   gauge มี 2 ขั้นเสมอ (ไม่ขึ้นกับจำนวน Dept)
         private const string STATUS_QC_CHECK = "28";
-        private const string STATUS_J3_APPROVE = "30";
+        private const string STATUS_J3_APPROVE = "31";   // gauge ขั้น 2 (รายชื่อ J3 Up ยังดึงจาก Authorize status 30)
 
         private string ApvStatus(int step)
         {
@@ -279,7 +279,7 @@ namespace Tool_Equipment_Control_System
 
         private string ApvStepLabel(int step)
         {
-            if (IsMeasureMode()) return step == 1 ? "QC Check" : "J3 Up Approve";
+            if (IsMeasureMode()) return step == 1 ? "QC Check" : "Approve 2 (J3 Up)";
             return step == 1 ? "Approver 1" : "Approver 2";
         }
 
@@ -625,7 +625,7 @@ namespace Tool_Equipment_Control_System
             {
                 string id = GetVal(r, "emp_id");
                 string st = GetVal(r, "status_id");
-                if (st == ApvStatus(2)) selR.Add(id); else selL.Add(id);   // gauge : 28 = QC (ซ้าย) , 30 = J3 (ขวา)
+                if (st == ApvStatus(2)) selR.Add(id); else selL.Add(id);   // gauge : 28 = QC (ซ้าย) , 31 = J3 (ขวา)
             }
             hfJ3SelectedL.Value = string.Join(",", selL.ToArray());
             hfJ3SelectedR.Value = string.Join(",", selR.ToArray());
@@ -817,8 +817,8 @@ namespace Tool_Equipment_Control_System
                     selectedKeys.Add(hfKey.Value);
             }
 
-            // ✅ QC Check : checkbox ถูกล็อก → ยืนยันทุกรายการเสมอ (ไม่อ่านค่าจากหน้าจอ)
-            if (IsMeasureMode() && step == 1)
+            // ✅ แจ้งเปลี่ยนเครื่องมือวัด (QC / Approve 2) : checkbox ถูกล็อก → ยืนยันทุกรายการเสมอ (ไม่อ่านค่าจากหน้าจอ)
+            if (IsMeasureMode())
             {
                 selectedKeys.Clear();
                 foreach (DataRow r in ChangeListDT.Rows)
@@ -1319,17 +1319,28 @@ namespace Tool_Equipment_Control_System
             litApvDoc.Text = Doc_No;
             BuildApproveTable();                    // ตาราง + checkbox default
 
-            if (IsQcConfirmStep())
+            // ✅ แจ้งเปลี่ยนเครื่องมือวัด : ไม่มีการเลือกรายการ → ล็อก checkbox + ซ่อนช่องเหตุผล
+            string confirmText = "ยืนยันอนุมัติ";
+            bool gaugeAll = IsGaugeAllItemsStep();
+            if (gaugeAll)
             {
-                litApvHead.Text = "QC Check : ยืนยันการเปลี่ยนเครื่องมือวัด";
-                btnApvConfirm.Text = "QC Confirm";
+                bool qc = IsQcConfirmStep();
+                confirmText = qc ? "QC Confirm" : "ยืนยันอนุมัติ";
+                litApvHead.Text = qc ? "QC Check : ยืนยันการเปลี่ยนเครื่องมือวัด" : "Approve 2 : อนุมัติการเปลี่ยนเครื่องมือวัด";
+                btnApvConfirm.Text = confirmText;
+                txtApvComment.Text = "";
                 litApvNotice.Text +=
                     "<div class='bw-notice' style='margin-bottom:10px;'>" +
-                    "<b>QC Confirm</b> = ยืนยันว่าเปลี่ยนเครื่องมือวัด<b>ครบทุกรายการ</b>แล้ว — " +
-                    "ถ้าไม่สามารถเปลี่ยนได้ ให้ปิดหน้าต่างนี้แล้วกด <b>Reject</b></div>";
-                ScriptManager.RegisterStartupScript(this, GetType(), "qcLockAll",
-                    "var ca=document.getElementById('apvCheckAll'); if(ca){ ca.checked=true; ca.disabled=true; }", true);
+                    (qc ? "<b>QC Confirm</b> = ยืนยันว่าเปลี่ยนเครื่องมือวัด<b>ครบทุกรายการ</b>แล้ว"
+                        : "<b>ยืนยันอนุมัติ</b> = อนุมัติการเปลี่ยนเครื่องมือวัด<b>ทุกรายการ</b>") +
+                    " — ถ้าไม่อนุมัติ ให้ปิดหน้าต่างนี้แล้วกด <b>Reject</b></div>";
             }
+            ScriptManager.RegisterStartupScript(this, GetType(), "apvGaugeAll",
+                "window.apvAllItems=" + (gaugeAll ? "true" : "false") + ";" +
+                "window.apvConfirmText='" + HttpUtility.JavaScriptStringEncode(confirmText) + "';" +
+                "var ca=document.getElementById('apvCheckAll'); if(ca){ ca.disabled=" + (gaugeAll ? "true" : "false") +
+                (gaugeAll ? "; ca.checked=true" : "") + "; }" +
+                "var cw=document.getElementById('apvCommentWrap'); if(cw){ cw.style.display='" + (gaugeAll ? "none" : "") + "'; }", true);
 
             // badge บอกขั้น
             string badge = (step == 1)
@@ -1356,7 +1367,7 @@ namespace Tool_Equipment_Control_System
             step = 0; docStatus = 0; flag = "";
             if (string.IsNullOrEmpty(empId)) return false;
 
-            // gauge : ขั้น 1 = 28 (QC) / ขั้น 2 = 30 (J3) — อ่านจากตาราง Approver ตรง ๆ
+            // gauge : ขั้น 1 = 28 (QC) / ขั้น 2 = 31 (Approve 2 : J3) — อ่านจากตาราง Approver ตรง ๆ
             //         (View_NotiChange_ApproverCheck คำนวณ approve_step จาก 30/31 ของโหมดปกติ)
             if (IsMeasureMode())
                 return CheckApproverRightGauge(Doc_No, empId, out step, out docStatus, out flag);
@@ -1621,15 +1632,15 @@ namespace Tool_Equipment_Control_System
             string a1 = drv["PrevA1"].ToString();
             int pairNo = drv["PairNo"] == DBNull.Value ? 0 : Convert.ToInt32(drv["PairNo"]);
 
-            // ✅ QC Check : ยืนยันทุกรายการ — ล็อก checkbox ไม่ให้เลือก/ยกเลิก
-            bool qcLock = IsQcConfirmStep();
+            // ✅ แจ้งเปลี่ยนเครื่องมือวัด (QC / Approve 2) : ยืนยันทุกรายการ — ล็อก checkbox ไม่ให้เลือก/ยกเลิก
+            bool qcLock = IsGaugeAllItemsStep();
             if (qcLock) def = true;
 
             CheckBox cb = e.Row.FindControl("cbApv") as CheckBox;
             if (cb != null)
             {
                 cb.Checked = def;
-                if (qcLock) { cb.Enabled = false; cb.ToolTip = "QC Confirm ยืนยันทุกรายการ"; }
+                if (qcLock) { cb.Enabled = false; cb.ToolTip = "ยืนยันทุกรายการ"; }
                 cb.InputAttributes["data-a1"] = (a1 == "N") ? "N" : "Y";          // ใช้เทียบ A2 ↔ A1
                 if (pairNo > 0) cb.InputAttributes["data-pair"] = pairNo.ToString(); // เลือกเป็นคู่
             }
@@ -1644,7 +1655,7 @@ namespace Tool_Equipment_Control_System
                 litState.Text =
                     (pairNo > 0 ? "<span class='apv-pair-lbl'>คู่ " + pairNo + " (" + drv["PairSlot"] + ")</span>" : "") +
                     "<span class='res-badge apv-row-badge " + (def ? "res-ok" : "res-ng") + "'>" +
-                    (qcLock ? "✓ QC Confirm" : (def ? "✓ อนุมัติ" : "✗ ไม่อนุมัติ")) + "</span>" +
+                    (qcLock ? (IsQcConfirmStep() ? "✓ QC Confirm" : "✓ อนุมัติ") : (def ? "✓ อนุมัติ" : "✗ ไม่อนุมัติ")) + "</span>" +
                     (step == 2 ? "<div class='res-steps'>" + PrevMark("A1", a1) + "</div>" : "");
 
             var css = new List<string>();
@@ -4124,7 +4135,7 @@ namespace Tool_Equipment_Control_System
 
                 if (IsMeasureMode())
                 {
-                    // gauge : ซ้าย = QC Check (28) จาก Authorize / ขวา = J3 Up (30) ของทุกแผนกในเอกสาร
+                    // gauge : ซ้าย = QC Check (28) จาก Authorize / ขวา = J3 Up (บันทึกเป็น 31) ของแผนกที่ต้อง Approve
                     InsertApproverGroup(Doc_No, "", empL, STATUS_QC_CHECK);
                     var left = new System.Collections.Generic.List<string>(empR);
                     foreach (string d in deptList)
@@ -5417,6 +5428,12 @@ namespace Tool_Equipment_Control_System
         {
             int step = ViewState["APV_STEP"] != null ? Convert.ToInt32(ViewState["APV_STEP"]) : 0;
             return IsMeasureMode() && step == 1;
+        }
+        // แจ้งเปลี่ยนเครื่องมือวัด : ทั้ง QC (28) และ Approve 2 (31) ยืนยันทุกรายการ — ไม่มี checkbox / เหตุผลรายรายการ
+        private bool IsGaugeAllItemsStep()
+        {
+            int step = ViewState["APV_STEP"] != null ? Convert.ToInt32(ViewState["APV_STEP"]) : 0;
+            return IsMeasureMode() && step > 0;
         }
 
         // ── Mode : QC Check (gauge / status 28) — QC ยืนยันการเปลี่ยนเครื่องมือวัดตามรายการ ──
@@ -8586,19 +8603,14 @@ namespace Tool_Equipment_Control_System
             string title, btnText;
             string[] steps;
 
-            // ✅ แจ้งเปลี่ยนเครื่องมือวัด @ 28 : ขั้นตอน QC Check
-            if (IsMeasureMode() && (status_id ?? "").Trim() == STATUS_QC_CHECK)
-                file = "QcCheck";
-
             switch (file)
             {
-                case "QcCheck":
+                case "QC Check":   // แจ้งเปลี่ยนเครื่องมือวัด @ 28 → ไฟล์คู่มือ "QC Check.pdf"
                     title = "ขั้นตอน QC Check";
                     btnText = "คู่มือ QC Check";
                     steps = new[] { "ตรวจสอบรายการเครื่องมือที่ต้องเปลี่ยน",
                             "กด QC Confirm เมื่อทำการเปลี่ยนเสร็จแล้ว",
                             "ไม่สามารถเปลี่ยนได้ กด Reject" };
-                    file = "Approver1";   // ใช้ไฟล์คู่มือเดิมไปก่อน (ยังไม่มี QcCheck.pdf)
                     break;
                 case "Approver1":
                     title = "ขั้นตอน Approver 1";
@@ -8852,6 +8864,7 @@ namespace Tool_Equipment_Control_System
         /// <summary>ไฟล์คู่มือตามสถานะ : 30 = Approver1 , 31 = Approver2 , 50 = Confirm (สถานะอื่นคืน "")</summary>
         private string ManualFileByStatus(string status_id)
         {
+            if (IsMeasureMode() && (status_id ?? "").Trim() == STATUS_QC_CHECK) return "QC Check";   // คู่มือ QC Check.pdf
             int apvStep = ApvStepOfStatus(status_id);
             if (apvStep == 1) return "Approver1";
             if (apvStep == 2) return "Approver2";

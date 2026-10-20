@@ -59,8 +59,20 @@ namespace Tool_Equipment_Control_System
         {
             string where = "";
 
-            if (ddl_status.SelectedValue != "")
-                where += " and status_id = " + ddl_status.SelectedValue.ToString();
+            // --- Status
+            //  ไม่เลือก        -> แสดงทั้งหมด ยกเว้น Transfer (11) / Scrap (12)
+            //  Transfer (11)  -> เฉพาะรายการที่มีใน History_Transfer
+            //  Scrap (12)     -> เฉพาะรายการที่มีใน History_Scrap
+            //  สถานะอื่น       -> status_id ตามที่เลือก
+            string selStatus = ddl_status.SelectedValue;
+            if (selStatus == STATUS_TRANSFER)
+                where += " and status_id = 11 " + HistoryExists("History_Transfer");
+            else if (selStatus == STATUS_SCRAP)
+                where += " and status_id = 12 " + HistoryExists("History_Scrap");
+            else if (selStatus != "")
+                where += " and status_id = " + selStatus;
+            else
+                where += " and status_id not in (11,12) ";
 
             if (ddl_dept.SelectedValue != "")
                 where += " and dept_id = " + ddl_dept.SelectedValue.ToString();
@@ -95,10 +107,24 @@ namespace Tool_Equipment_Control_System
 
             return where;
         }
+
+        private const string STATUS_TRANSFER = "11";
+        private const string STATUS_SCRAP = "12";
+
+        // เงื่อนไข EXISTS: ต้องมีประวัติใน History table (Tool_id + Tool_sub + System_id ตรงกับ View)
+        // ใช้ EXISTS เพื่อไม่ให้แถวซ้ำ กรณี 1 รายการมีประวัติหลายครั้ง
+        // CAST เป็น nvarchar เพราะชนิดคอลัมน์ไม่ตรงกัน (History_Transfer.System_id = int, History_Scrap.System_id = nvarchar)
+        private static string HistoryExists(string historyTable)
+        {
+            return " and EXISTS ( select 1 from dbo." + historyTable + " h "
+                 + " where CAST(h.Tool_id AS nvarchar(50)) = CAST(Tool_Equipment_List_View.tool_id AS nvarchar(50)) "
+                 + " and CAST(h.Tool_sub AS nvarchar(50)) = CAST(Tool_Equipment_List_View.sub_no AS nvarchar(50)) "
+                 + " and CAST(h.System_id AS nvarchar(10)) = CAST(Tool_Equipment_List_View.sys_status AS nvarchar(10)) ) ";
+        }
         private void Bind_ddl_status()
         {
-            // --- ไม่เอา Status ID = 11 (Transfer) / ID = 12 (Scrap) 
-            string str2 = " select * from tool_equipment_status where status_id not in (11,12) ";
+            // --- รวม Transfer (11) / Scrap (12) ไว้ท้ายรายการ (ค่า default ยังไม่แสดง 2 สถานะนี้ — ดู get_where)
+            string str2 = " select * from tool_equipment_status order by case when status_id in (11,12) then 1 else 0 end, status_id ";
 
             dc.QryDT(conn, str2);
 
@@ -168,10 +194,10 @@ namespace Tool_Equipment_Control_System
                 keyword += " or tool_no LIKE '%" + textsearch + "%' ) And "  ;
             }
 
-            // --- ไม่เอา Status_id = 11 (Tranfer) / Status_id = 12 (Scrap)
-            str += "  select * ,( Case when DATEDIFF(YEAR, start_use,GETDATE()) > 0 then CAST(DATEDIFF(YEAR, start_use,GETDATE()) AS varchar(5)) +' Year 'Else '' end   ";
+            // --- เงื่อนไข Status (รวม Transfer/Scrap) อยู่ใน get_where()
+            str +="  select * ,( Case when DATEDIFF(YEAR, start_use,GETDATE()) > 0 then CAST(DATEDIFF(YEAR, start_use,GETDATE()) AS varchar(5)) +' Year 'Else '' end   ";
             str += "  + Case when DATEDIFF(MONTH , start_use,GETDATE()) % 12  > 0 then CAST(DATEDIFF(MONTH , start_use,GETDATE()) % 12 AS varchar(5) )+' Month ' else '' end ) as useful_date   ";
-            str += "  from Tool_Equipment_List_View  where " + keyword + "ID is not null  "+ where + "AND status_id not IN (11,12)";
+            str += "  from Tool_Equipment_List_View  where " + keyword + "ID is not null  "+ where;
             dc.QryDT(conn, str);
 
             //test.Text = str;
@@ -548,6 +574,9 @@ namespace Tool_Equipment_Control_System
                             break;
                         case "Scrap":
                             cssClass = "status-dot status-scrap";
+                            break;
+                        case "Transfer":
+                            cssClass = "status-dot status-transfer";
                             break;
                         case "Dispose":
                             cssClass = "status-dot status-dispose";

@@ -580,6 +580,10 @@
             background-color: #795548; /* น้ำตาลเข้ม */
         }
 
+        .status-transfer {
+            background-color: #0D9488; /* เขียวอมฟ้า */
+        }
+
         .status-dispose {
             background-color: #607D8B; /* เทาอมน้ำเงิน */
         }

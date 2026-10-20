@@ -3032,25 +3032,17 @@ namespace Tool_Equipment_Control_System
         {
             if (e.CommandName != "RemoveItem") return;
 
-            int rowIndex = Convert.ToInt32(e.CommandArgument);
-
-            if (rowIndex < 0 || rowIndex >= gvChangeList.Rows.Count) return;
-
-            GridViewRow gvRow = gvChangeList.Rows[rowIndex];
-
-            HiddenField hdToolId = gvRow.FindControl("hdtoolId") as HiddenField;
-            HiddenField hdToolSub = gvRow.FindControl("hdtoolSub") as HiddenField;
-            HiddenField hdSystemId = gvRow.FindControl("hdsystemId") as HiddenField;
-
-            if (hdToolId == null || hdToolSub == null || hdSystemId == null)
+            // ✅ Key ของรายการมากับปุ่มเลย (ToolId|ToolSub|SystemId)
+            //    เดิมใช้ CommandArgument = ลำดับแถว แล้วไปหา HiddenField ใน gvChangeList.Rows[index]
+            //    → ถ้าตารางถูก Bind ใหม่ระหว่าง postback (ลำดับแถวเปลี่ยน / แถวไม่ตรงกับที่กด)
+            //      จะหา HiddenField ไม่เจอ = "ไม่พบข้อมูล Hidden Field" หรือเสี่ยงลบผิดแถว
+            string toolId, toolSub, systemId;
+            if (!TryGetRemoveKey(e, out toolId, out toolSub, out systemId))
             {
-                alert_toast("ไม่พบข้อมูล Hidden Field", "Remove Error", "error", "10000");
+                alert_toast("ไม่พบข้อมูลรายการที่ต้องการลบ กรุณาลองใหม่อีกครั้ง", "Remove Error", "error", "10000");
+                BindChangeList_Display();   // รีเฟรชตารางให้ตรงกับข้อมูลล่าสุด
                 return;
             }
-
-            string toolId = hdToolId.Value;
-            string toolSub = hdToolSub.Value;
-            string systemId = hdSystemId.Value;
 
             // ── STEP 1 : Sync GridView → ChangeListDT (ไม่ Compare) ──
             SyncGridViewToChangeListDT();
@@ -3116,6 +3108,34 @@ namespace Tool_Equipment_Control_System
 
             BindChangeList_Display();
             AutoGenerateApproverFlow();
+        }
+
+        // ── อ่าน Key ของรายการที่กด Remove ──
+        //  1) จาก CommandArgument "ToolId|ToolSub|SystemId" (หลัก)
+        //  2) fallback : HiddenField ในแถวของปุ่มที่กดจริง (NamingContainer — ไม่ใช้ลำดับแถว)
+        private bool TryGetRemoveKey(GridViewCommandEventArgs e, out string toolId, out string toolSub, out string systemId)
+        {
+            toolId = toolSub = systemId = null;
+
+            string arg = Convert.ToString(e.CommandArgument);
+            string[] parts = arg.Split('|');
+            if (parts.Length == 3 && parts[0] != "" && parts[1] != "" && parts[2] != "")
+            {
+                toolId = parts[0]; toolSub = parts[1]; systemId = parts[2];
+                return true;
+            }
+
+            Control src = e.CommandSource as Control;
+            GridViewRow row = src != null ? src.NamingContainer as GridViewRow : null;
+            if (row == null) return false;
+
+            HiddenField hId = row.FindControl("hdtoolId") as HiddenField;
+            HiddenField hSub = row.FindControl("hdtoolSub") as HiddenField;
+            HiddenField hSys = row.FindControl("hdsystemId") as HiddenField;
+            if (hId == null || hSub == null || hSys == null || hId.Value == "") return false;
+
+            toolId = hId.Value; toolSub = hSub.Value; systemId = hSys.Value;
+            return true;
         }
 
         // ── ปลดล็อค Model/Cell/Station (ddl+txt+toggle) สำหรับ Approve Mode ──

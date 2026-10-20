@@ -817,6 +817,14 @@ namespace Tool_Equipment_Control_System
                     selectedKeys.Add(hfKey.Value);
             }
 
+            // ✅ QC Check : checkbox ถูกล็อก → ยืนยันทุกรายการเสมอ (ไม่อ่านค่าจากหน้าจอ)
+            if (IsMeasureMode() && step == 1)
+            {
+                selectedKeys.Clear();
+                foreach (DataRow r in ChangeListDT.Rows)
+                    if (GetVal(r, "CompareData") != "Delete") selectedKeys.Add(RowKey(r));
+            }
+
             string comment = txtApvComment.Text.Trim();
 
             // ── นับ active + unselected ──
@@ -1311,6 +1319,18 @@ namespace Tool_Equipment_Control_System
             litApvDoc.Text = Doc_No;
             BuildApproveTable();                    // ตาราง + checkbox default
 
+            if (IsQcConfirmStep())
+            {
+                litApvHead.Text = "QC Check : ยืนยันการเปลี่ยนเครื่องมือวัด";
+                btnApvConfirm.Text = "QC Confirm";
+                litApvNotice.Text +=
+                    "<div class='bw-notice' style='margin-bottom:10px;'>" +
+                    "<b>QC Confirm</b> = ยืนยันว่าเปลี่ยนเครื่องมือวัด<b>ครบทุกรายการ</b>แล้ว — " +
+                    "ถ้าไม่สามารถเปลี่ยนได้ ให้ปิดหน้าต่างนี้แล้วกด <b>Reject</b></div>";
+                ScriptManager.RegisterStartupScript(this, GetType(), "qcLockAll",
+                    "var ca=document.getElementById('apvCheckAll'); if(ca){ ca.checked=true; ca.disabled=true; }", true);
+            }
+
             // badge บอกขั้น
             string badge = (step == 1)
                 ? "<span class='badge' style='background:#2980b9;'>Approve 1 (Current Dept)</span>"
@@ -1601,10 +1621,15 @@ namespace Tool_Equipment_Control_System
             string a1 = drv["PrevA1"].ToString();
             int pairNo = drv["PairNo"] == DBNull.Value ? 0 : Convert.ToInt32(drv["PairNo"]);
 
+            // ✅ QC Check : ยืนยันทุกรายการ — ล็อก checkbox ไม่ให้เลือก/ยกเลิก
+            bool qcLock = IsQcConfirmStep();
+            if (qcLock) def = true;
+
             CheckBox cb = e.Row.FindControl("cbApv") as CheckBox;
             if (cb != null)
             {
                 cb.Checked = def;
+                if (qcLock) { cb.Enabled = false; cb.ToolTip = "QC Confirm ยืนยันทุกรายการ"; }
                 cb.InputAttributes["data-a1"] = (a1 == "N") ? "N" : "Y";          // ใช้เทียบ A2 ↔ A1
                 if (pairNo > 0) cb.InputAttributes["data-pair"] = pairNo.ToString(); // เลือกเป็นคู่
             }
@@ -1619,7 +1644,7 @@ namespace Tool_Equipment_Control_System
                 litState.Text =
                     (pairNo > 0 ? "<span class='apv-pair-lbl'>คู่ " + pairNo + " (" + drv["PairSlot"] + ")</span>" : "") +
                     "<span class='res-badge apv-row-badge " + (def ? "res-ok" : "res-ng") + "'>" +
-                    (def ? "✓ อนุมัติ" : "✗ ไม่อนุมัติ") + "</span>" +
+                    (qcLock ? "✓ QC Confirm" : (def ? "✓ อนุมัติ" : "✗ ไม่อนุมัติ")) + "</span>" +
                     (step == 2 ? "<div class='res-steps'>" + PrevMark("A1", a1) + "</div>" : "");
 
             var css = new List<string>();
@@ -5387,6 +5412,13 @@ namespace Tool_Equipment_Control_System
             }
         }
 
+        // QC Check = แจ้งเปลี่ยนเครื่องมือวัด + ขั้น Approve 1
+        private bool IsQcConfirmStep()
+        {
+            int step = ViewState["APV_STEP"] != null ? Convert.ToInt32(ViewState["APV_STEP"]) : 0;
+            return IsMeasureMode() && step == 1;
+        }
+
         // ── Mode : QC Check (gauge / status 28) — QC ยืนยันการเปลี่ยนเครื่องมือวัดตามรายการ ──
         private void ApplyQcCheckModeUI()
         {
@@ -5398,7 +5430,7 @@ namespace Tool_Equipment_Control_System
             btnApprove.ToolTip = "ยืนยันการเปลี่ยนเครื่องมือวัดตามรายการ";
 
             litApvHead.Text = "QC Check : ยืนยันการเปลี่ยนเครื่องมือวัด";
-            btnApvConfirm.Text = "ยืนยัน QC Confirm";
+            btnApvConfirm.Text = "QC Confirm";
         }
         /// <summary>ปิดการแก้ไข control ทั้งหมดในแถว (recursive)</summary>
         private void MakeRowReadonly(Control parent)
@@ -8466,8 +8498,20 @@ namespace Tool_Equipment_Control_System
             string title, btnText;
             string[] steps;
 
+            // ✅ แจ้งเปลี่ยนเครื่องมือวัด @ 28 : ขั้นตอน QC Check
+            if (IsMeasureMode() && (status_id ?? "").Trim() == STATUS_QC_CHECK)
+                file = "QcCheck";
+
             switch (file)
             {
+                case "QcCheck":
+                    title = "ขั้นตอน QC Check";
+                    btnText = "คู่มือ QC Check";
+                    steps = new[] { "ตรวจสอบรายการเครื่องมือที่ต้องเปลี่ยน",
+                            "กด QC Confirm เมื่อทำการเปลี่ยนเสร็จแล้ว",
+                            "ไม่สามารถเปลี่ยนได้ กด Reject" };
+                    file = "Approver1";   // ใช้ไฟล์คู่มือเดิมไปก่อน (ยังไม่มี QcCheck.pdf)
+                    break;
                 case "Approver1":
                     title = "ขั้นตอน Approver 1";
                     btnText = "คู่มือ Approver 1";

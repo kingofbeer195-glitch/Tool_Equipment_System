@@ -757,9 +757,9 @@
                                 </div>
                             </a>
 
-                            <%--Menu : Dashboard (กำลังพัฒนา : Admin / ยังไม่มีหน้า → คลิกไม่ได้)--%>
+                            <%--Menu : Dashboard (กำลังพัฒนา : Admin)--%>
                             <div id="menuDashboard" runat="server" visible="false">
-                                <a class="menu-card card-blue is-dev is-locked" aria-disabled="true" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                <a href="Dashboard.aspx" class="menu-card card-blue is-dev" title="เมนูนี้อยู่ระหว่างการพัฒนา">
                                     <span class="dev-tag">🚧 กำลังพัฒนา</span>
                                     <div class="card-icon">
                                         <img src="images/Dashboard_Icon.png" alt="icon" style="max-width:95%;" />
@@ -773,7 +773,9 @@
 
                             <%--Menu : Equipment (กำลังพัฒนา : Admin)--%>
                             <div id="menuEquipment" runat="server" visible="false">
-                                <a href="CalibrationManagement.aspx" class="menu-card card-green is-dev" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                <a href="Equipment_Calibration.aspx" class="menu-card card-green is-dev" title="เมนูนี้อยู่ระหว่างการพัฒนา">
+                                    <span class="menu-badge" id="badgeCalib" runat="server" visible="false"
+                                        style="background:#c93b3b;" title="เครื่องมือวัดเหลือเวลาสอบเทียบ &lt; 3 วัน / เกินกำหนด"></span>
                                     <span class="dev-tag">🚧 กำลังพัฒนา</span>
                                     <div class="card-icon">
                                         <img src="images/electrical.png" alt="icon" style="max-width:120%;" />

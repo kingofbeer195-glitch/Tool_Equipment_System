@@ -172,13 +172,24 @@ namespace Tool_Equipment_Control_System
 
             // 1.2.2 Approver (ทุกคน รวมถึง Admin ที่มีสิทธิ Approve ด้วย)
             //   AAD2 : status 30 = ขั้น A1 (approve_step 1), status 31 = ขั้น A2 (approve_step 2)
+            //          แจ้งเปลี่ยนเครื่องมือวัด (change_type = gauge) : 28 = QC Check , 30 = J3 Up
+            //          → ผู้มีสิทธิ์ = มีชื่อใน NotificationofChange_Approver ที่ status_id ตรงกับสถานะเอกสาร
             conds.Add(
-                " V.document_id = 'AAD2' AND V.status_id IN (30, 31) " +
-                " AND EXISTS ( SELECT 1 FROM View_NotiChange_ApproverCheck N " +
-                "              WHERE N.Doc_No = V.Doc_No " +
-                "                AND N.emp_id = '" + empSafe + "' " +
-                "                AND ( (V.status_id = 30 AND N.approve_step = 1) " +
-                "                   OR (V.status_id = 31 AND N.approve_step = 2) ) ) ");
+                " V.document_id = 'AAD2' AND ( " +
+                "   ( V.status_id IN (30, 31) " +
+                "     AND NOT EXISTS ( SELECT 1 FROM NotificationofChange_Control_List G " +
+                "                      WHERE G.Doc_No = V.Doc_No AND G.change_type = 'gauge' ) " +
+                "     AND EXISTS ( SELECT 1 FROM View_NotiChange_ApproverCheck N " +
+                "                  WHERE N.Doc_No = V.Doc_No " +
+                "                    AND N.emp_id = '" + empSafe + "' " +
+                "                    AND ( (V.status_id = 30 AND N.approve_step = 1) " +
+                "                       OR (V.status_id = 31 AND N.approve_step = 2) ) ) ) " +
+                "   OR ( V.status_id IN (28, 30) " +
+                "     AND EXISTS ( SELECT 1 FROM NotificationofChange_Control_List G " +
+                "                  JOIN NotificationofChange_Approver A " +
+                "                    ON A.Doc_No = G.Doc_No AND A.status_id = G.status_id " +
+                "                  WHERE G.Doc_No = V.Doc_No AND G.change_type = 'gauge' " +
+                "                    AND LTRIM(RTRIM(A.emp_id)) = '" + empSafe + "' ) ) ) ");
 
             // TODO (NOTE) : AAD4 สำหรับ User ที่ไม่ใช่ Admin (J3 Up Approve / Genba Check)
             //               ยังไม่ทำในรอบนี้ — เพิ่ม conds.Add(...) ตรงนี้ภายหลัง
@@ -549,8 +560,8 @@ namespace Tool_Equipment_Control_System
                     btnApprove.Visible = true;
                     btnReturn.Visible = false;
                 }
-                // J3 Up Approve -- Requester
-                else if (status_id == 30 || status_id == 31)
+                // J3 Up Approve -- Requester / QC Check (28 : แจ้งเปลี่ยนเครื่องมือวัด)
+                else if (status_id == 28 || status_id == 30 || status_id == 31)
                 {
                     btnConfirm.Visible = false;
                     btnApprove.Visible = true;

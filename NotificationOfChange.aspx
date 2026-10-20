@@ -2170,7 +2170,8 @@
                                             <asp:Button ID="btnRemove" runat="server" Text="Remove"
                                                 CssClass="btn btn-danger btn-sm"
                                                 OnClientClick="return confirmRemoveSwap();"
-                                                CommandName="RemoveItem" CommandArgument="<%# Container.DataItemIndex %>" />
+                                                CommandName="RemoveItem"
+                                                CommandArgument='<%# Eval("ToolId") + "|" + Eval("ToolSub") + "|" + Eval("SystemId") %>' />
                                         </ItemTemplate>
                                     </asp:TemplateField>
 

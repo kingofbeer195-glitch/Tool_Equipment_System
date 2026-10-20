@@ -238,20 +238,13 @@ namespace Tool_Equipment_Control_System
                     string str = "";
                     string where = "";
 
-                    if (isAdmin)
+                    // ── เงื่อนไข "รายการที่ตัวเองร้องขอ" (ใช้ทั้ง User และ Admin) ──
+                    string ownCond;
+                    if (chkbox_not.Checked)
                     {
-                        // ✅ Admin: แสดง AAD4 ทั้งหมดที่ยังไม่เสร็จ (ทุกคน ไม่ผูก issue_empid)
-                        str = "Select * From View_Equipment_Request_List A" +
-                              " Where A.Doc_No LIKE 'AAD4-%' AND A.status_id NOT IN(99,100,999)" +
-                              " Order By Doc_No";
-                    }
-                    else if (chkbox_not.Checked)
-                    {
-                        // ✅ ไม่ใช่ Admin: ตัด AAD4 ออก
-                        str = "Select * From View_Equipment_Request_List A" +
-                              " Where A.issue_empid = '" + empId + "' AND status_id NOT IN(99,100,999)" +
-                              " AND A.Doc_No NOT LIKE 'AAD4-%'" +
-                              " Order By Doc_No";
+                        // ✅ ยังไม่เสร็จ : ตัด AAD4 ออก (Admin เห็น AAD4 จากเงื่อนไขด้านล่าง)
+                        ownCond = " A.issue_empid = @emp AND A.status_id NOT IN(99,100,999)" +
+                                  " AND A.Doc_No NOT LIKE 'AAD4-%'";
                     }
                     else
                     {
@@ -270,21 +263,34 @@ namespace Tool_Equipment_Control_System
                             where += " and A.issue_date <= '" + dateTo.ToString() + "'";
                         }
 
-                        // ✅ ไม่ใช่ Admin: ตัด AAD4 ออกเสมอ
+                        // ✅ ตัด AAD4 ออก (Admin เห็น AAD4 จากเงื่อนไขด้านล่าง)
                         where += " AND A.Doc_No NOT LIKE 'AAD4-%'";
 
-                        str = " Select * " +
-                              " From View_Equipment_Request_List A " +
-                              " Where A.issue_empid = '" + emp_id + "' " + where +
+                        ownCond = " A.issue_empid = @emp " + where;
+                    }
+
+                    if (isAdmin)
+                    {
+                        // ✅ Admin : รายการที่ตัวเองร้องขอ (เช่น แจ้งเปลี่ยนเครื่องมือวัด AAD2)
+                        //           + AAD4 ทั้งหมดที่ยังไม่เสร็จ (ทุกคน ไม่ผูก issue_empid) แบบเดิม
+                        str = "Select * From View_Equipment_Request_List A" +
+                              " Where ( " + ownCond + " )" +
+                              "    OR ( A.Doc_No LIKE 'AAD4-%' AND A.status_id NOT IN(99,100,999) )" +
+                              " Order By Doc_No";
+                    }
+                    else
+                    {
+                        str = "Select * From View_Equipment_Request_List A" +
+                              " Where " + ownCond +
                               " Order By Doc_No";
                     }
 
-                    dc.QryDT(conn, str);
+                    dc.QryDT_P(conn, str, new SqlParameter("@emp", SqlDbType.NVarChar) { Value = emp_id });
                     dt_Request_List = dc.dt;
 
                     dt_Request_List.Columns.Add("empName", typeof(string));
                     foreach (DataRow row in dt_Request_List.Rows)
-                        if (!isAdmin) { row["empName"] = empName; }
+                        if (!isAdmin || Convert.ToString(row["issue_empid"]).Trim() == emp_id) { row["empName"] = empName; }
 
                     lblTotal.Text = dt_Request_List.Rows.Count.ToString();
                 }
